@@ -6,6 +6,7 @@ import { RefinementChat } from './components/RefinementChat';
 import { AuthProvider } from './components/auth/AuthContext';
 import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import { LoadingAnimation } from './components/LoadingAnimation';
 import {
   LightingConfig,
   MannequinConfig,
@@ -361,24 +362,28 @@ const MainApp: React.FC = () => {
 
         <main className="flex-1 p-8 flex gap-8 overflow-hidden">
           <div className={`transition-all duration-700 ease-in-out flex flex-col ${genState.resultUrl ? 'w-1/3' : 'w-full'}`}>
-            <div className="flex-1 rounded-2xl overflow-hidden border border-studio-700 relative bg-studio-800 shadow-2xl flex items-center justify-center">
-              <div className="text-center p-8">
-                <div className="text-6xl mb-6 transform hover:scale-110 transition-transform duration-500 cursor-default">📸</div>
-                <h2 className="text-xl font-light tracking-[0.2em] mb-4 text-white">STUDIO READY</h2>
-                <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[10px] uppercase tracking-widest text-gray-400 text-left border-t border-b border-studio-700/50 py-4 my-4 max-w-xs mx-auto">
-                  <span>Shot Type</span> <span className="text-right text-studio-accent font-bold">{scene.shotType.replace('_', ' ')}</span>
-                  <span>Lighting</span> <span className="text-right text-white">{scene.lightingPreset.replace('_', ' ')}</span>
-                  <span>Style</span> <span className="text-right text-white">{mannequin.editorialStyle}</span>
-                  <span>Lens</span> <span className="text-right text-white">{scene.focalLength}</span>
-                  <span>Pose</span> <span className="text-right text-white">{mannequin.pose.replace(/_/g, ' ')}</span>
-                  <span>Model</span> <span className="text-right text-white">{mannequin.gender} / {mannequin.ethnicity}</span>
+            {(genState.status === 'analyzing' || genState.status === 'generating') ? (
+              <LoadingAnimation stage={genState.status} />
+            ) : (
+              <div className="flex-1 rounded-2xl overflow-hidden border border-studio-700 relative bg-studio-800 shadow-2xl flex items-center justify-center">
+                <div className="text-center p-8">
+                  <div className="text-6xl mb-6 transform hover:scale-110 transition-transform duration-500 cursor-default">📸</div>
+                  <h2 className="text-xl font-light tracking-[0.2em] mb-4 text-white">STUDIO READY</h2>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[10px] uppercase tracking-widest text-gray-400 text-left border-t border-b border-studio-700/50 py-4 my-4 max-w-xs mx-auto">
+                    <span>Shot Type</span> <span className="text-right text-studio-accent font-bold">{scene.shotType.replace('_', ' ')}</span>
+                    <span>Lighting</span> <span className="text-right text-white">{scene.lightingPreset.replace('_', ' ')}</span>
+                    <span>Style</span> <span className="text-right text-white">{mannequin.editorialStyle}</span>
+                    <span>Lens</span> <span className="text-right text-white">{scene.focalLength}</span>
+                    <span>Pose</span> <span className="text-right text-white">{mannequin.pose.replace(/_/g, ' ')}</span>
+                    <span>Model</span> <span className="text-right text-white">{mannequin.gender} / {mannequin.ethnicity}</span>
+                  </div>
+                  <p className="text-gray-600 text-xs">Configure your shot and click Generate</p>
                 </div>
-                <p className="text-gray-600 text-xs">Configure your shot and click Generate</p>
+                <div className="absolute top-4 left-4 flex gap-2">
+                  <span className="px-2 py-1 bg-black/60 rounded text-[8px] uppercase font-bold text-white/50 backdrop-blur-md">Layout Preview</span>
+                </div>
               </div>
-              <div className="absolute top-4 left-4 flex gap-2">
-                <span className="px-2 py-1 bg-black/60 rounded text-[8px] uppercase font-bold text-white/50 backdrop-blur-md">Layout Preview</span>
-              </div>
-            </div>
+            )}
           </div>
 
           {genState.resultUrl && (
