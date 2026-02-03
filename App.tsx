@@ -114,7 +114,6 @@ const MainApp: React.FC = () => {
   };
 
   const getApiKey = async (): Promise<string> => {
-    if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
     const stored = localStorage.getItem('gemini_api_key');
     if (stored) return stored;
     if (window.aistudio) {
@@ -125,7 +124,7 @@ const MainApp: React.FC = () => {
         console.warn("Could not retrieve key from aistudio", e);
       }
     }
-    throw new Error("API Key not found. Please set VITE_API_KEY, enter it manually, or connect a project.");
+    throw new Error("API Key not found. Please enter your Gemini API key from https://aistudio.google.com/apikey");
   };
 
   const handleError = useCallback((err: unknown) => {
