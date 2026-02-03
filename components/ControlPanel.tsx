@@ -194,6 +194,38 @@ export default function ControlPanel({
             options={['female', 'male']}
           />
 
+          <OptionGrid
+            label="Ethnicity"
+            current={mannequin.ethnicity}
+            onChange={(val) => setMannequin({ ...mannequin, ethnicity: val as any })}
+            options={['asian', 'western', 'black']}
+            cols={3}
+          />
+
+          <OptionGrid
+            label="Age Group"
+            current={mannequin.ageGroup}
+            onChange={(val) => setMannequin({ ...mannequin, ageGroup: val as any })}
+            options={['youthful', 'mature', 'sophisticated']}
+            cols={3}
+          />
+
+          <OptionGrid
+            label="Body Type"
+            current={mannequin.bodyType}
+            onChange={(val) => setMannequin({ ...mannequin, bodyType: val as any })}
+            options={['slim', 'athletic', 'curvy', 'plus']}
+            cols={2}
+          />
+
+          <OptionGrid
+            label="Vibe"
+            current={mannequin.vibe}
+            onChange={(val) => setMannequin({ ...mannequin, vibe: val as any })}
+            options={['minimalist', 'edgy', 'casual', 'elegant']}
+            cols={2}
+          />
+
           <UploadSlot
             label="Custom Model (Optional)"
             image={uploadedImages.model}
