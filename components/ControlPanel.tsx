@@ -59,7 +59,7 @@ export default function ControlPanel({
     <div className="flex flex-col h-full bg-studio-800 p-5 overflow-y-auto border-r border-studio-700 custom-scrollbar">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-xl font-light tracking-widest text-white">
-          LUMINA <span className="text-studio-600 font-bold">3D</span>
+          LUMINA <span className="text-studio-600 font-bold">STUDIO</span>
         </h1>
         <div className="flex items-center space-x-2">
           <span className="text-[9px] text-gray-500 uppercase font-bold">Setup Mode</span>

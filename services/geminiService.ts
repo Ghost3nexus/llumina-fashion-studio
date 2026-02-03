@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { LightingConfig, MannequinConfig, VisionAnalysis, SceneConfig, DetailedGarmentMeasurements } from "../types";
+import { LightingConfig, MannequinConfig, VisionAnalysis, SceneConfig, DetailedGarmentMeasurements, RefinementRequest, RefinementInterpretation, RefinementTarget, RefinementChangeType } from "../types";
 
 const parseBase64 = (b64: string) => {
   if (b64.includes(",")) {
@@ -239,6 +239,120 @@ RETURN ONLY the complete, valid updated JSON.`
     throw error;
   }
 };
+
+/**
+ * Build a structured refinement prompt from user request
+ * This ensures accurate interpretation and prevents unintended changes
+ */
+export const buildRefinementPrompt = (
+  request: RefinementRequest,
+  currentAnalysis: VisionAnalysis
+): RefinementInterpretation => {
+  const targetLabels: Record<RefinementTarget, string> = {
+    tops: 'Top',
+    pants: 'Pants',
+    outer: 'Outer',
+    inner: 'Inner',
+    shoes: 'Shoes',
+    background: 'Background',
+    lighting: 'Lighting',
+    pose: 'Pose'
+  };
+
+  const changeTypeLabels: Record<RefinementChangeType, string> = {
+    color: 'Color',
+    style: 'Style',
+    material: 'Material',
+    pattern: 'Pattern',
+    custom: 'Custom'
+  };
+
+  // Build structured prompt based on change type
+  const promptTemplates: Record<RefinementChangeType, string> = {
+    color: `CRITICAL: Change ONLY the ${request.target} to ${request.value} color.
+    
+REQUIREMENTS:
+- Update the ${request.target} color to exactly ${request.value}
+- Keep ALL other items (tops, pants, outer, shoes, background, lighting, pose) EXACTLY as they are
+- Maintain the same fabric texture, style, and fit
+- Do not modify any other aspect of the image
+
+CURRENT STATE (for reference):
+${JSON.stringify(currentAnalysis, null, 2)}`,
+
+    style: `CRITICAL: Make the ${request.target} more ${request.value} in style.
+    
+REQUIREMENTS:
+- Adjust ONLY the ${request.target} to have a ${request.value} style
+- Keep the same color: ${getCurrentColor(request.target, currentAnalysis)}
+- Keep the same fabric: ${getCurrentFabric(request.target, currentAnalysis)}
+- Keep ALL other items unchanged
+- Maintain the overall fit and proportions
+
+CURRENT STATE (for reference):
+${JSON.stringify(currentAnalysis, null, 2)}`,
+
+    material: `CRITICAL: Change the ${request.target} material to ${request.value}.
+    
+REQUIREMENTS:
+- Update ONLY the ${request.target} fabric/material to ${request.value}
+- Keep the same color: ${getCurrentColor(request.target, currentAnalysis)}
+- Keep the same style and design
+- Keep ALL other items unchanged
+- Render realistic ${request.value} texture
+
+CURRENT STATE (for reference):
+${JSON.stringify(currentAnalysis, null, 2)}`,
+
+    pattern: `CRITICAL: Add ${request.value} pattern to the ${request.target}.
+    
+REQUIREMENTS:
+- Add ONLY ${request.value} pattern to the ${request.target}
+- Keep the base color: ${getCurrentColor(request.target, currentAnalysis)}
+- Keep the same fabric and style
+- Keep ALL other items unchanged
+- Ensure pattern is subtle and realistic
+
+CURRENT STATE (for reference):
+${JSON.stringify(currentAnalysis, null, 2)}`,
+
+    custom: `CRITICAL: ${request.description || request.value}
+    
+REQUIREMENTS:
+- Apply the change ONLY to the ${request.target}
+- Keep ALL other items (tops, pants, outer, shoes, background, lighting, pose) EXACTLY as they are
+- Maintain overall composition and framing
+
+CURRENT STATE (for reference):
+${JSON.stringify(currentAnalysis, null, 2)}`
+  };
+
+  const generatedPrompt = promptTemplates[request.changeType];
+
+  return {
+    target: targetLabels[request.target],
+    changeType: changeTypeLabels[request.changeType],
+    value: request.value,
+    generatedPrompt
+  };
+};
+
+// Helper functions to get current state
+function getCurrentColor(target: RefinementTarget, analysis: VisionAnalysis): string {
+  const item = analysis[target as keyof VisionAnalysis];
+  if (item && typeof item === 'object' && 'colorHex' in item) {
+    return item.colorHex || 'current color';
+  }
+  return 'current color';
+}
+
+function getCurrentFabric(target: RefinementTarget, analysis: VisionAnalysis): string {
+  const item = analysis[target as keyof VisionAnalysis];
+  if (item && typeof item === 'object' && 'fabric' in item) {
+    return item.fabric || 'current fabric';
+  }
+  return 'current fabric';
+}
 
 
 

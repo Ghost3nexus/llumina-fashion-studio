@@ -84,3 +84,21 @@ export enum ViewMode {
   SETUP = 'SETUP',
   RESULT = 'RESULT'
 }
+
+// Refinement feature types
+export type RefinementTarget = 'tops' | 'pants' | 'outer' | 'inner' | 'shoes' | 'background' | 'lighting' | 'pose';
+export type RefinementChangeType = 'color' | 'style' | 'material' | 'pattern' | 'custom';
+
+export interface RefinementRequest {
+  target: RefinementTarget;
+  changeType: RefinementChangeType;
+  value: string;
+  description?: string; // For custom changes
+}
+
+export interface RefinementInterpretation {
+  target: string;
+  changeType: string;
+  value: string;
+  generatedPrompt: string;
+}

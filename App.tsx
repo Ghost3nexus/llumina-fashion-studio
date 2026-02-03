@@ -2,7 +2,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ControlPanel from './components/ControlPanel';
-import { RefinementChat } from './components/RefinementChat';
+import RefinementForm from './components/RefinementForm';
+import RefinementConfirmation from './components/RefinementConfirmation';
 import { AuthProvider } from './components/auth/AuthContext';
 import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -13,9 +14,11 @@ import {
   SceneConfig,
   GenerationState,
   DetailedGarmentMeasurements,
-  ClothingType
+  ClothingType,
+  RefinementRequest,
+  RefinementInterpretation
 } from './types';
-import { analyzeClothingItems, generateFashionShot, interpretModification } from './services/geminiService';
+import { analyzeClothingItems, generateFashionShot, interpretModification, buildRefinementPrompt } from './services/geminiService';
 
 const DEFAULT_LIGHTING: LightingConfig = {
   intensity: 1.0,
@@ -68,6 +71,7 @@ const MainApp: React.FC = () => {
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [manualKey, setManualKey] = useState<string>('');
   const [isRefining, setIsRefining] = useState(false);
+  const [pendingRefinement, setPendingRefinement] = useState<RefinementInterpretation | null>(null);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -209,24 +213,32 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleRefine = async (instruction: string) => {
+  const handleRefinementRequest = (request: RefinementRequest) => {
     if (!genState.analysis) return;
+
+    // Build interpretation and show confirmation
+    const interpretation = buildRefinementPrompt(request, genState.analysis);
+    setPendingRefinement(interpretation);
+  };
+
+  const handleConfirmRefinement = async () => {
+    if (!genState.analysis || !pendingRefinement) return;
 
     try {
       setIsRefining(true);
       const apiKey = await getApiKey();
 
-      // 1. Interpret user instruction to update analysis
+      // Use the generated prompt to update analysis
       const updatedAnalysis = await interpretModification(
         apiKey,
         genState.analysis,
-        instruction
+        pendingRefinement.generatedPrompt
       );
 
       // Update local state with new analysis
       setGenState(prev => ({ ...prev, analysis: updatedAnalysis, status: 'generating' }));
 
-      // 2. Re-generate image with updated analysis
+      // Re-generate image with updated analysis
       const validImages: Record<string, string> = {};
       for (const [key, val] of Object.entries(uploadedImages) as [string, string | null][]) {
         if (val) validImages[key] = val;
@@ -248,12 +260,19 @@ const MainApp: React.FC = () => {
         resultUrl: generatedImageUrl
       }));
 
+      // Clear pending refinement
+      setPendingRefinement(null);
+
     } catch (err) {
       console.error("Refinement failed:", err);
       handleError(err);
     } finally {
       setIsRefining(false);
     }
+  };
+
+  const handleCancelRefinement = () => {
+    setPendingRefinement(null);
   };
 
   if (hasApiKey === false) {
@@ -400,7 +419,22 @@ const MainApp: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <RefinementChat onSend={handleRefine} isProcessing={isRefining} />
+              <div className="bg-studio-800 rounded-xl border border-studio-700 p-4">
+                {pendingRefinement ? (
+                  <RefinementConfirmation
+                    interpretation={pendingRefinement}
+                    onConfirm={handleConfirmRefinement}
+                    onCancel={handleCancelRefinement}
+                    isProcessing={isRefining}
+                  />
+                ) : (
+                  <RefinementForm
+                    onSubmit={handleRefinementRequest}
+                    uploadedImages={uploadedImages}
+                    isProcessing={isRefining}
+                  />
+                )}
+              </div>
             </div>
           )}
         </main>
