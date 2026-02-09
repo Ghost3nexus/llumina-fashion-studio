@@ -13,34 +13,70 @@ export default function RefinementForm({ onSubmit, uploadedImages, isProcessing 
     const [value, setValue] = useState('');
     const [description, setDescription] = useState('');
 
-    // Get available targets based on uploaded images
+    // Get available targets based on uploaded images (clothing items only)
     const availableTargets: { value: RefinementTarget; label: string }[] = [
         ...(uploadedImages.tops ? [{ value: 'tops' as RefinementTarget, label: 'Top' }] : []),
         ...(uploadedImages.pants ? [{ value: 'pants' as RefinementTarget, label: 'Pants' }] : []),
         ...(uploadedImages.outer ? [{ value: 'outer' as RefinementTarget, label: 'Outer' }] : []),
         ...(uploadedImages.inner ? [{ value: 'inner' as RefinementTarget, label: 'Inner' }] : []),
         ...(uploadedImages.shoes ? [{ value: 'shoes' as RefinementTarget, label: 'Shoes' }] : []),
-        { value: 'background', label: 'Background' },
-        { value: 'lighting', label: 'Lighting' },
-        { value: 'pose', label: 'Pose' },
     ];
 
-    const changeTypes: { value: RefinementChangeType; label: string; placeholder: string }[] = [
-        { value: 'color', label: 'Color', placeholder: 'e.g., black, navy blue, red' },
-        { value: 'style', label: 'Style', placeholder: 'e.g., casual, formal, vintage' },
-        { value: 'material', label: 'Material', placeholder: 'e.g., silk, cotton, leather' },
-        { value: 'pattern', label: 'Pattern', placeholder: 'e.g., striped, floral, checkered' },
-        { value: 'custom', label: 'Custom', placeholder: 'Describe your change...' },
-    ];
+    // Define which change types are supported for each target
+    const getAvailableChangeTypes = (currentTarget: RefinementTarget): { value: RefinementChangeType; label: string; placeholder: string }[] => {
+        const clothingItems = ['tops', 'pants', 'outer', 'inner', 'shoes'];
+
+        // Clothing items support all change types
+        if (clothingItems.includes(currentTarget)) {
+            return [
+                { value: 'color', label: 'Color', placeholder: 'e.g., red or #FF0000' },
+                { value: 'style', label: 'Style', placeholder: 'e.g., casual, formal, vintage' },
+                { value: 'material', label: 'Material', placeholder: 'e.g., silk, cotton, leather' },
+                { value: 'pattern', label: 'Pattern', placeholder: 'e.g., striped, floral, checkered' },
+                { value: 'custom', label: 'Custom', placeholder: 'Describe your change...' },
+            ];
+        }
+
+        // Background supports color and custom
+        if (currentTarget === 'background') {
+            return [
+                { value: 'color', label: 'Color', placeholder: 'e.g., white, studio gray, #F5F5F5' },
+                { value: 'custom', label: 'Custom', placeholder: 'Describe background change...' },
+            ];
+        }
+
+        // Lighting and Pose only support custom
+        return [
+            { value: 'custom', label: 'Custom', placeholder: 'Describe your change...' },
+        ];
+    };
+
+    const availableChangeTypes = getAvailableChangeTypes(target);
+
+
+    // Helper function to parse color input (handles comma-separated values)
+    const parseColorInput = (input: string): string => {
+        if (!input.trim()) return '';
+        // If comma-separated, take the first value
+        const colors = input.split(',').map(c => c.trim()).filter(c => c);
+        return colors[0] || '';
+    };
+
+    // Check if input has multiple colors
+    const hasMultipleColors = changeType === 'color' && value.includes(',');
+    const parsedColor = hasMultipleColors ? parseColorInput(value) : value.trim();
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!value.trim()) return;
 
+        // For color changes, use parsed color (first value if comma-separated)
+        const finalValue = changeType === 'color' ? parseColorInput(value) : value.trim();
+
         onSubmit({
             target,
             changeType,
-            value: value.trim(),
+            value: finalValue,
             description: description.trim() || undefined,
         });
 
@@ -49,7 +85,7 @@ export default function RefinementForm({ onSubmit, uploadedImages, isProcessing 
         setDescription('');
     };
 
-    const currentPlaceholder = changeTypes.find(ct => ct.value === changeType)?.placeholder || '';
+    const currentPlaceholder = availableChangeTypes.find(ct => ct.value === changeType)?.placeholder || '';
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -81,7 +117,7 @@ export default function RefinementForm({ onSubmit, uploadedImages, isProcessing 
                     className="w-full bg-studio-900 border border-studio-700 rounded px-3 py-2 text-sm text-white focus:border-studio-accent outline-none"
                     disabled={isProcessing}
                 >
-                    {changeTypes.map(ct => (
+                    {availableChangeTypes.map(ct => (
                         <option key={ct.value} value={ct.value}>{ct.label}</option>
                     ))}
                 </select>
@@ -100,6 +136,19 @@ export default function RefinementForm({ onSubmit, uploadedImages, isProcessing 
                     className="w-full bg-studio-900 border border-studio-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-studio-accent outline-none"
                     disabled={isProcessing}
                 />
+                {hasMultipleColors && (
+                    <div className="mt-2 flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/30 rounded px-3 py-2">
+                        <span className="text-yellow-500 text-xs">⚠️</span>
+                        <div className="flex-1">
+                            <p className="text-xs text-yellow-200">
+                                Multiple colors detected. Only "{parsedColor}" will be used.
+                            </p>
+                            <p className="text-[10px] text-yellow-300/70 mt-1">
+                                複数の色が検出されました。「{parsedColor}」のみが使用されます。
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Additional Details (for custom) */}
@@ -124,8 +173,8 @@ export default function RefinementForm({ onSubmit, uploadedImages, isProcessing 
                 type="submit"
                 disabled={!value.trim() || isProcessing}
                 className={`w-full py-3 rounded font-bold uppercase tracking-widest text-xs transition-all ${!value.trim() || isProcessing
-                        ? 'bg-studio-700 text-gray-500 cursor-not-allowed'
-                        : 'bg-studio-accent text-white hover:bg-studio-accent/80 shadow-lg hover:shadow-studio-accent/20'
+                    ? 'bg-studio-700 text-gray-500 cursor-not-allowed'
+                    : 'bg-studio-accent text-white hover:bg-studio-accent/80 shadow-lg hover:shadow-studio-accent/20'
                     }`}
             >
                 {isProcessing ? 'Processing...' : 'Preview Change'}

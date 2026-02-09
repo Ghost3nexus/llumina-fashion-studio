@@ -38,7 +38,20 @@ export default function RefinementConfirmation({
 
                 <div>
                     <p className="text-[10px] uppercase font-bold text-gray-500 mb-1">New Value / 新しい値</p>
-                    <p className="text-sm text-studio-accent font-medium">{interpretation.value}</p>
+                    <div className="flex items-center gap-2">
+                        <p className="text-sm text-studio-accent font-medium">{interpretation.value}</p>
+                        {interpretation.changeType === 'Color' && (
+                            <div
+                                className="w-6 h-6 rounded border-2 border-white/20 shadow-lg"
+                                style={{
+                                    backgroundColor: interpretation.value.startsWith('#')
+                                        ? interpretation.value
+                                        : interpretation.value.toLowerCase()
+                                }}
+                                title={`Color preview: ${interpretation.value}`}
+                            />
+                        )}
+                    </div>
                 </div>
 
                 {/* Generated Prompt (for transparency) */}

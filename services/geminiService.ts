@@ -45,6 +45,9 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
     const ai = new GoogleGenAI({ apiKey });
     const parts = [];
 
+    console.log('🔍 analyzeClothingItems START');
+    console.log('📥 Images to analyze:', Object.keys(images));
+
     for (const [key, b64] of Object.entries(images)) {
       if (!b64) continue;
       // Skip model image for clothing analysis
@@ -52,11 +55,35 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
 
       const validImage = await ensureSupportedFormat(b64);
       const { mimeType, data } = parseBase64(validImage);
-      parts.push({ text: `REFERENCE ${key.toUpperCase()}:` });
+
+      // Explicit instruction for each image
+      parts.push({
+        text: `ANALYZE THIS ${key.toUpperCase()} GARMENT:
+This image shows a ${key} item. You MUST extract its details and include it in the "${key}" field of your JSON response.
+Do not omit this item from your analysis.`
+      });
       parts.push({ inlineData: { mimeType, data } });
+
+      console.log(`✓ Added ${key} image for analysis`);
     }
 
     if (parts.length === 0) throw new Error("No images provided for analysis");
+
+    console.log(`📊 Total images to analyze: ${parts.length / 2}`);
+
+    // Build required fields array based on uploaded images
+    const requiredFields = ["overallStyle", "keywords"];
+    const uploadedItems: string[] = [];
+
+    for (const key of Object.keys(images)) {
+      if (images[key] && key !== 'model') {
+        uploadedItems.push(key);
+        requiredFields.push(key);
+      }
+    }
+
+    console.log('📋 Required fields:', requiredFields);
+    console.log('📦 Uploaded items:', uploadedItems);
 
     const response = await ai.models.generateContent({
       model: "gemini-2.0-flash",
@@ -64,13 +91,24 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
         parts: parts,
       },
       config: {
-        systemInstruction: `You are a high-end fashion consultant and texture analyst. 
-        Examine the provided reference images with extreme precision.
-        Identify:
-        1. Exact fabric weave (e.g., 12oz denim, silk satin, heavy-weight cotton jersey).
-        2. Color values in HEX and descriptive terms (e.g., #2C3E50 "Midnight Navy").
-        3. Subtle details: contrast stitching, button materials, pocket styles, hem finishes.
-        Return a JSON object matching the VisionAnalysis interface.`,
+        systemInstruction: `You are a high-end fashion consultant and texture analyst.
+
+CRITICAL INSTRUCTION: For EACH reference image provided, you MUST analyze it and include it in the corresponding field of your JSON response.
+
+- If you see "ANALYZE THIS TOPS GARMENT", extract details and populate the "tops" field
+- If you see "ANALYZE THIS PANTS GARMENT", extract details and populate the "pants" field
+- If you see "ANALYZE THIS OUTER GARMENT", extract details and populate the "outer" field
+- If you see "ANALYZE THIS INNER GARMENT", extract details and populate the "inner" field
+- If you see "ANALYZE THIS SHOES GARMENT", extract details and populate the "shoes" field
+
+DO NOT omit any provided reference images from your analysis. Every image you receive MUST appear in the final JSON.
+
+For each garment, identify with extreme precision:
+1. Exact fabric weave (e.g., 12oz denim, silk satin, heavy-weight cotton jersey)
+2. Color values in HEX and descriptive terms (e.g., #2C3E50 "Midnight Navy")
+3. Subtle details: contrast stitching, button materials, pocket styles, hem finishes
+
+Return a complete JSON object with ALL provided garments included.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -123,14 +161,25 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
             overallStyle: { type: Type.STRING },
             keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
           },
-          required: ["overallStyle", "keywords"]
+          required: requiredFields  // Dynamic required fields based on uploaded images
         }
       }
     });
 
     const text = response.text;
     if (!text) throw new Error("No analysis returned");
-    return JSON.parse(text) as VisionAnalysis;
+
+    const analysis = JSON.parse(text) as VisionAnalysis;
+
+    console.log('📤 Analysis result:', JSON.stringify(analysis, null, 2));
+    console.log('✅ Analysis includes - tops:', !!analysis.tops);
+    console.log('✅ Analysis includes - pants:', !!analysis.pants);
+    console.log('✅ Analysis includes - outer:', !!analysis.outer);
+    console.log('✅ Analysis includes - inner:', !!analysis.inner);
+    console.log('✅ Analysis includes - shoes:', !!analysis.shoes);
+    console.log('🔍 analyzeClothingItems END');
+
+    return analysis;
   } catch (error) {
     console.error("Vision Analysis Failed:", error);
     throw error;
@@ -151,7 +200,7 @@ export const interpretModification = async (
         {
           role: "user",
           parts: [{
-            text: `You are an expert fashion AI. Your task is to MODIFY the existing clothing analysis JSON based on the user's natural language instruction.
+            text: `You are an expert fashion AI. Your task is to MODIFY ONLY ONE SPECIFIC ITEM in the existing clothing analysis JSON based on the user's instruction.
 
 CURRENT ANALYSIS JSON:
 ${JSON.stringify(currentAnalysis, null, 2)}
@@ -159,16 +208,45 @@ ${JSON.stringify(currentAnalysis, null, 2)}
 USER INSTRUCTION:
 "${instruction}"
 
-GUIDELINES:
-1. Identify the target item (tops, pants, outer, etc.) from the instruction.
-2. Update the specific fields (colorHex, fabric, style, description) requested.
-   - For COLOR changes: Update 'colorHex' with a realistic hex code AND update 'description' to mention the new color.
-   - For MATERIAL changes: Update 'fabric' AND 'description'.
-   - For STYLE changes: Update 'style' AND 'description'.
-3. KEEP all other fields exactly as they are. Do not lose existing details unless they conflict with the change.
-4. If the user asks to "remove" an item, set that item key to null or remove it (if the schema allows) or clear its fields. (Note: Schema requires objects, so just clear the content strings if removing).
+CRITICAL INSTRUCTIONS:
 
-RETURN ONLY the complete, valid updated JSON.`
+1. IDENTIFY THE TARGET ITEM:
+   - The instruction explicitly mentions which item to modify (e.g., "tops", "pants", "outer", "inner", "shoes")
+   - Extract the target item name from the instruction
+   - Locate that specific item in the CURRENT ANALYSIS JSON above
+
+2. MODIFY ONLY THE TARGET ITEM:
+   - Update ONLY the fields specified in the instruction for that ONE item
+   - For COLOR changes: 
+     * Update 'colorHex' with the appropriate hex code for the new color
+     * Update 'description' to mention the new color
+     * Keep 'fabric' and 'style' EXACTLY as they are
+   - For MATERIAL/FABRIC changes:
+     * Update 'fabric' field
+     * Update 'description' to mention the new material
+     * Keep 'colorHex' and 'style' EXACTLY as they are
+   - For STYLE changes:
+     * Update 'style' field
+     * Update 'description' to reflect the new style
+     * Keep 'colorHex' and 'fabric' EXACTLY as they are
+
+3. PRESERVE ALL OTHER ITEMS (CRITICAL):
+   - Do NOT modify any other items (tops, pants, outer, inner, shoes) except the target
+   - Keep their colorHex, fabric, style, and description fields COMPLETELY UNCHANGED
+   - Copy them exactly as they appear in the CURRENT ANALYSIS JSON
+
+4. PRESERVE OVERALL FIELDS:
+   - Keep 'overallStyle' and 'keywords' EXACTLY as they are unless the instruction specifically asks to change them
+
+EXAMPLE:
+If instruction says "Change the tops to red color":
+- Modify ONLY the 'tops' object
+- Update tops.colorHex to a red hex code (e.g., "#FF0000")
+- Update tops.description to mention "red"
+- Keep tops.fabric and tops.style unchanged
+- Keep pants, outer, inner, shoes COMPLETELY unchanged
+
+RETURN ONLY the complete, valid updated JSON with the single targeted modification.`
           }]
         }
       ],
@@ -269,16 +347,42 @@ export const buildRefinementPrompt = (
 
   // Build structured prompt based on change type
   const promptTemplates: Record<RefinementChangeType, string> = {
-    color: `CRITICAL: Change ONLY the ${request.target} to ${request.value} color.
-    
-REQUIREMENTS:
-- Update the ${request.target} color to exactly ${request.value}
-- Keep ALL other items (tops, pants, outer, shoes, background, lighting, pose) EXACTLY as they are
-- Maintain the same fabric texture, style, and fit
-- Do not modify any other aspect of the image
+    color: `CRITICAL COLOR CHANGE: Change ONLY the ${request.target} to ${request.value} color.
+
+TARGET ITEM IDENTIFICATION:
+- Item to modify: ${request.target}
+- Current color: ${getCurrentColor(request.target, currentAnalysis)}
+- Current fabric: ${getCurrentFabric(request.target, currentAnalysis)}
+- Current style: ${getCurrentStyle(request.target, currentAnalysis)}
+
+STRICT REQUIREMENTS:
+1. COLOR CHANGE (ONLY FOR ${request.target.toUpperCase()}):
+   - Change the ${request.target} color to: ${request.value}
+   - If "${request.value}" is a color name (e.g., "red", "black", "navy blue"), convert it to an appropriate hex code
+   - If "${request.value}" is already a hex code (e.g., "#FF0000"), use it directly
+   - Update the ${request.target}.colorHex field with the new hex code
+   - Update the ${request.target}.description to mention the new color
+   - Keep the ${request.target}.fabric as: ${getCurrentFabric(request.target, currentAnalysis)}
+   - Keep the ${request.target}.style as: ${getCurrentStyle(request.target, currentAnalysis)}
+
+2. PRESERVATION (ABSOLUTELY CRITICAL):
+   - Do NOT modify tops if target is not tops
+   - Do NOT modify pants if target is not pants
+   - Do NOT modify outer if target is not outer
+   - Do NOT modify inner if target is not inner
+   - Do NOT modify shoes if target is not shoes
+   - Keep ALL other items' colorHex, fabric, style, and description fields EXACTLY as they are in the current state
+   - Only change the ${request.target} item, nothing else
+
+3. VALIDATION:
+   - Ensure the new color is realistic and appropriate for the garment type
+   - Maintain fabric texture and weave patterns with the new color
+   - The ${request.target} should be the ONLY item with a different color than before
 
 CURRENT STATE (for reference):
-${JSON.stringify(currentAnalysis, null, 2)}`,
+${JSON.stringify(currentAnalysis, null, 2)}
+
+REMINDER: Change ONLY the ${request.target}. All other items must remain UNCHANGED.`,
 
     style: `CRITICAL: Make the ${request.target} more ${request.value} in style.
     
@@ -333,7 +437,8 @@ ${JSON.stringify(currentAnalysis, null, 2)}`
     target: targetLabels[request.target],
     changeType: changeTypeLabels[request.changeType],
     value: request.value,
-    generatedPrompt
+    generatedPrompt,
+    originalRequest: request // Preserve original request for direct manipulation
   };
 };
 
@@ -354,6 +459,247 @@ function getCurrentFabric(target: RefinementTarget, analysis: VisionAnalysis): s
   return 'current fabric';
 }
 
+function getCurrentStyle(target: RefinementTarget, analysis: VisionAnalysis): string {
+  const item = analysis[target as keyof VisionAnalysis];
+  if (item && typeof item === 'object' && 'style' in item) {
+    return item.style || 'current style';
+  }
+  return 'current style';
+}
+
+/**
+ * Convert color name or hex to valid hex code
+ * This ensures consistent color representation
+ */
+function convertColorToHex(color: string): string {
+  const trimmed = color.trim();
+
+  // If already hex, validate and return
+  if (trimmed.startsWith('#')) {
+    // Basic validation: should be #RGB or #RRGGBB
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(trimmed)) {
+      return trimmed.toUpperCase();
+    }
+  }
+
+  // Common color name to hex mapping
+  const colorMap: Record<string, string> = {
+    // Basic colors
+    'red': '#FF0000',
+    'blue': '#0000FF',
+    'green': '#00FF00',
+    'black': '#000000',
+    'white': '#FFFFFF',
+    'yellow': '#FFFF00',
+    'orange': '#FFA500',
+    'purple': '#800080',
+    'pink': '#FFC0CB',
+    'brown': '#8B4513',
+    'gray': '#808080',
+    'grey': '#808080',
+
+    // Extended colors
+    'navy': '#000080',
+    'navy blue': '#000080',
+    'beige': '#F5F5DC',
+    'cream': '#FFFDD0',
+    'ivory': '#FFFFF0',
+    'khaki': '#C3B091',
+    'olive': '#808000',
+    'maroon': '#800000',
+    'burgundy': '#800020',
+    'wine': '#722F37',
+    'charcoal': '#36454F',
+    'slate': '#708090',
+    'silver': '#C0C0C0',
+    'gold': '#FFD700',
+    'tan': '#D2B48C',
+    'camel': '#C19A6B',
+    'mustard': '#FFDB58',
+    'coral': '#FF7F50',
+    'salmon': '#FA8072',
+    'peach': '#FFE5B4',
+    'lavender': '#E6E6FA',
+    'mint': '#98FF98',
+    'teal': '#008080',
+    'turquoise': '#40E0D0',
+    'cyan': '#00FFFF',
+    'indigo': '#4B0082',
+    'violet': '#EE82EE',
+    'magenta': '#FF00FF',
+    'crimson': '#DC143C',
+    'scarlet': '#FF2400',
+  };
+
+  const normalized = trimmed.toLowerCase();
+  return colorMap[normalized] || '#808080'; // Default to gray if unknown
+}
+
+/**
+ * Update description to reflect new color
+ */
+function updateDescriptionWithColor(description: string, newColor: string): string {
+  // Remove existing color mentions (simple approach)
+  const colorWords = ['red', 'blue', 'green', 'black', 'white', 'yellow', 'orange', 'purple',
+    'pink', 'brown', 'gray', 'grey', 'navy', 'beige', 'cream', 'khaki'];
+
+  let updated = description;
+  colorWords.forEach(color => {
+    const regex = new RegExp(`\\b${color}\\b`, 'gi');
+    updated = updated.replace(regex, '').trim();
+  });
+
+  // Clean up multiple spaces
+  updated = updated.replace(/\s+/g, ' ').trim();
+
+  // Prepend new color
+  return `${newColor} ${updated}`.trim();
+}
+
+/**
+ * Update description to reflect new material
+ */
+function updateDescriptionWithMaterial(description: string, newMaterial: string): string {
+  // Simple approach: mention material in description
+  if (!description.toLowerCase().includes(newMaterial.toLowerCase())) {
+    return `${newMaterial} ${description}`.trim();
+  }
+  return description;
+}
+
+/**
+ * Update description to reflect new style
+ */
+function updateDescriptionWithStyle(description: string, newStyle: string): string {
+  // Simple approach: mention style in description
+  if (!description.toLowerCase().includes(newStyle.toLowerCase())) {
+    return `${newStyle} style ${description}`.trim();
+  }
+  return description;
+}
+
+/**
+ * Add pattern to description
+ */
+function addPatternToDescription(description: string, pattern: string): string {
+  if (!description.toLowerCase().includes(pattern.toLowerCase())) {
+    return `${pattern} ${description}`.trim();
+  }
+  return description;
+}
+
+/**
+ * Directly apply refinement to analysis JSON without AI interpretation
+ * This is more reliable than asking AI to interpret natural language
+ */
+export const applyRefinementDirectly = (
+  currentAnalysis: VisionAnalysis,
+  request: RefinementRequest
+): VisionAnalysis => {
+  console.log('🔍 applyRefinementDirectly START');
+  console.log('📥 Input Analysis:', JSON.stringify(currentAnalysis, null, 2));
+  console.log('📝 Request:', request);
+
+  // Deep clone to avoid mutations
+  const updated = JSON.parse(JSON.stringify(currentAnalysis)) as VisionAnalysis;
+
+  console.log('📋 Cloned Analysis:', JSON.stringify(updated, null, 2));
+  console.log('✅ Clone verification - tops exists:', !!updated.tops);
+  console.log('✅ Clone verification - pants exists:', !!updated.pants);
+  console.log('✅ Clone verification - outer exists:', !!updated.outer);
+  console.log('✅ Clone verification - inner exists:', !!updated.inner);
+  console.log('✅ Clone verification - shoes exists:', !!updated.shoes);
+
+  const { target, changeType, value } = request;
+
+  // Only handle clothing items with this direct approach
+  const clothingTargets: RefinementTarget[] = ['tops', 'pants', 'outer', 'inner', 'shoes'];
+  if (!clothingTargets.includes(target)) {
+    // For non-clothing targets (background, lighting, pose), return unchanged
+    // These would need AI interpretation or different handling
+    console.warn(`⚠️ Direct manipulation not supported for target: ${target}`);
+    return currentAnalysis;
+  }
+
+  // Get the target item
+  const item = updated[target as keyof VisionAnalysis];
+  if (!item || typeof item !== 'object') {
+    console.warn(`⚠️ Target item not found: ${target}`);
+    console.log('📤 Returning updated analysis (no changes)');
+    return updated;
+  }
+
+  console.log(`🎯 Modifying target: ${target}`);
+  console.log(`📌 Current ${target}:`, JSON.stringify(item, null, 2));
+
+  // Apply changes based on change type
+  switch (changeType) {
+    case 'color':
+      // Convert color name/hex to hex code
+      const hexColor = convertColorToHex(value);
+      if ('colorHex' in item) {
+        const oldColor = item.colorHex;
+        item.colorHex = hexColor;
+        console.log(`✓ Updated ${target}.colorHex: ${oldColor} → ${hexColor}`);
+      }
+      if ('description' in item && typeof item.description === 'string') {
+        const oldDesc = item.description;
+        item.description = updateDescriptionWithColor(item.description, value);
+        console.log(`✓ Updated ${target}.description: "${oldDesc}" → "${item.description}"`);
+      }
+      break;
+
+    case 'material':
+      if ('fabric' in item) {
+        const oldFabric = item.fabric;
+        item.fabric = value;
+        console.log(`✓ Updated ${target}.fabric: ${oldFabric} → ${value}`);
+      }
+      if ('description' in item && typeof item.description === 'string') {
+        const oldDesc = item.description;
+        item.description = updateDescriptionWithMaterial(item.description, value);
+        console.log(`✓ Updated ${target}.description: "${oldDesc}" → "${item.description}"`);
+      }
+      break;
+
+    case 'style':
+      if ('style' in item) {
+        const oldStyle = item.style;
+        item.style = value;
+        console.log(`✓ Updated ${target}.style: ${oldStyle} → ${value}`);
+      }
+      if ('description' in item && typeof item.description === 'string') {
+        const oldDesc = item.description;
+        item.description = updateDescriptionWithStyle(item.description, value);
+        console.log(`✓ Updated ${target}.description: "${oldDesc}" → "${item.description}"`);
+      }
+      break;
+
+    case 'pattern':
+      if ('description' in item && typeof item.description === 'string') {
+        const oldDesc = item.description;
+        item.description = addPatternToDescription(item.description, value);
+        console.log(`✓ Updated ${target}.description: "${oldDesc}" → "${item.description}"`);
+      }
+      break;
+
+    case 'custom':
+      // For custom changes, we might still need AI interpretation
+      console.warn(`⚠️ Custom changes require AI interpretation`);
+      break;
+  }
+
+  console.log(`📌 Modified ${target}:`, JSON.stringify(item, null, 2));
+  console.log('📤 Final Analysis:', JSON.stringify(updated, null, 2));
+  console.log('✅ Final verification - tops exists:', !!updated.tops);
+  console.log('✅ Final verification - pants exists:', !!updated.pants);
+  console.log('✅ Final verification - outer exists:', !!updated.outer);
+  console.log('✅ Final verification - inner exists:', !!updated.inner);
+  console.log('✅ Final verification - shoes exists:', !!updated.shoes);
+  console.log('🔍 applyRefinementDirectly END');
+
+  return updated;
+};
 
 
 export const generateFashionShot = async (

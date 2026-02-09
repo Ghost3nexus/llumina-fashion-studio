@@ -18,7 +18,7 @@ import {
   RefinementRequest,
   RefinementInterpretation
 } from './types';
-import { analyzeClothingItems, generateFashionShot, interpretModification, buildRefinementPrompt } from './services/geminiService';
+import { analyzeClothingItems, generateFashionShot, buildRefinementPrompt, applyRefinementDirectly } from './services/geminiService';
 
 const DEFAULT_LIGHTING: LightingConfig = {
   intensity: 1.0,
@@ -228,12 +228,18 @@ const MainApp: React.FC = () => {
       setIsRefining(true);
       const apiKey = await getApiKey();
 
-      // Use the generated prompt to update analysis
-      const updatedAnalysis = await interpretModification(
-        apiKey,
+      console.log('=== REFINEMENT START ===');
+      console.log('Original Request:', pendingRefinement.originalRequest);
+      console.log('Current Analysis:', genState.analysis);
+
+      // Use direct JSON manipulation for clothing items (more reliable)
+      const updatedAnalysis = applyRefinementDirectly(
         genState.analysis,
-        pendingRefinement.generatedPrompt
+        pendingRefinement.originalRequest
       );
+
+      console.log('Updated Analysis:', updatedAnalysis);
+      console.log('=== REFINEMENT END ===');
 
       // Update local state with new analysis
       setGenState(prev => ({ ...prev, analysis: updatedAnalysis, status: 'generating' }));

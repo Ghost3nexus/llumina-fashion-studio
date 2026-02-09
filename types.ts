@@ -101,4 +101,5 @@ export interface RefinementInterpretation {
   changeType: string;
   value: string;
   generatedPrompt: string;
+  originalRequest: RefinementRequest; // Preserve original structured request
 }
