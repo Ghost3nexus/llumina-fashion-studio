@@ -1,24 +1,30 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import ControlPanel from './components/ControlPanel';
+import NewGenerationPage from './pages/NewGenerationPage';
+import { TopControlPanel } from './components/TopControlPanel';
 import RefinementForm from './components/RefinementForm';
 import RefinementConfirmation from './components/RefinementConfirmation';
 import { AuthProvider } from './components/auth/AuthContext';
 import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import { LoadingAnimation } from './components/LoadingAnimation';
+import { GenerationHistory, HistoryItem } from './components/GenerationHistory';
+import { BatchGenerationPanel } from './components/BatchGenerationPanel';
 import {
   LightingConfig,
   MannequinConfig,
   SceneConfig,
   GenerationState,
   DetailedGarmentMeasurements,
+  DetailedAccessoryMeasurements,
+  DetailedAccessoryPositioning,
+  DetailedAccessoryMaterials,
   ClothingType,
   RefinementRequest,
   RefinementInterpretation
 } from './types';
-import { analyzeClothingItems, generateFashionShot, buildRefinementPrompt, applyRefinementDirectly } from './services/geminiService';
+import { analyzeClothingItems, generateFashionShot, generateECBatchShots, buildRefinementPrompt, applyRefinementDirectly, BatchShotResult } from './services/geminiService';
 
 const DEFAULT_LIGHTING: LightingConfig = {
   intensity: 1.0,
@@ -29,22 +35,24 @@ const DEFAULT_LIGHTING: LightingConfig = {
 };
 
 const DEFAULT_MANNEQUIN: MannequinConfig = {
-  pose: 'standing',
+  pose: 'ec_neutral',
   rotation: 0,
   gender: 'female',
-  ethnicity: 'asian',
+  ethnicity: 'east_asian',
   bodyType: 'slim',
   ageGroup: 'youthful',
   vibe: 'minimalist',
-  editorialStyle: 'vogue'
+  editorialStyle: 'prada_intellectual'
 };
 
 const DEFAULT_SCENE: SceneConfig = {
   background: 'studio',
   isSetup: false,
   focalLength: '50mm',
-  lightingPreset: 'studio',
-  shotType: 'full_body'
+  lightingPreset: 'ec_standard',
+  shotType: 'full_body_front',
+  outputPurpose: 'ec_product',
+  customPrompt: ''
 };
 
 const DEFAULT_GARMENT_MEASUREMENTS: DetailedGarmentMeasurements = {
@@ -61,6 +69,10 @@ const MainApp: React.FC = () => {
     outer: null,
     inner: null,
     shoes: null,
+    bag: null,
+    sunglasses: null,
+    glasses: null,
+    accessories: null,
     model: null
   });
   const [lighting, setLighting] = useState<LightingConfig>(DEFAULT_LIGHTING);
@@ -68,10 +80,26 @@ const MainApp: React.FC = () => {
   const [scene, setScene] = useState<SceneConfig>(DEFAULT_SCENE);
   const [genState, setGenState] = useState<GenerationState>({ status: 'idle' });
   const [garmentMeasurements, setGarmentMeasurements] = useState<DetailedGarmentMeasurements>(DEFAULT_GARMENT_MEASUREMENTS);
+  const [accessoryMeasurements, setAccessoryMeasurements] = useState<DetailedAccessoryMeasurements>({});
+  const [accessoryPositioning, setAccessoryPositioning] = useState<DetailedAccessoryPositioning>({});
+  const [accessoryMaterials, setAccessoryMaterials] = useState<DetailedAccessoryMaterials>({});
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [manualKey, setManualKey] = useState<string>('');
   const [isRefining, setIsRefining] = useState(false);
   const [pendingRefinement, setPendingRefinement] = useState<RefinementInterpretation | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [currentHistoryId, setCurrentHistoryId] = useState<string | undefined>();
+  // EC Batch Generation State
+  const [batchResults, setBatchResults] = useState<BatchShotResult[]>([]);
+  const [batchStatus, setBatchStatus] = useState<'idle' | 'generating' | 'complete' | 'error'>('idle');
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 5 });
+  const [batchSelectedIndex, setBatchSelectedIndex] = useState<number | null>(null);
+  const [batchError, setBatchError] = useState<string | undefined>();
+
+  // Panel State - REMOVED (Legacy Resizing)
+
+  // Horizontal Scroll Layout Logic
+  // No complex state needed, just CSS scroll snapping
 
   useEffect(() => {
     const checkKey = async () => {
@@ -198,7 +226,10 @@ const MainApp: React.FC = () => {
         mannequin,
         scene,
         validImages,
-        garmentMeasurements
+        garmentMeasurements,
+        accessoryMeasurements,
+        accessoryPositioning,
+        accessoryMaterials
       );
 
       setGenState(prev => ({
@@ -206,6 +237,23 @@ const MainApp: React.FC = () => {
         status: 'complete',
         resultUrl: generatedImageUrl
       }));
+
+      // Save to history
+      const historyItem: HistoryItem = {
+        id: Date.now().toString(),
+        imageUrl: generatedImageUrl,
+        timestamp: Date.now(),
+        params: {
+          editorialStyle: mannequin.editorialStyle,
+          lightingPreset: scene.lightingPreset,
+          shotType: scene.shotType,
+          pose: mannequin.pose,
+          ethnicity: mannequin.ethnicity,
+          gender: mannequin.gender
+        }
+      };
+      setHistory(prev => [historyItem, ...prev].slice(0, 20));
+      setCurrentHistoryId(historyItem.id);
 
     } catch (err: unknown) {
       console.error(err);
@@ -257,7 +305,10 @@ const MainApp: React.FC = () => {
         mannequin,
         scene,
         validImages,
-        garmentMeasurements
+        garmentMeasurements,
+        accessoryMeasurements,
+        accessoryPositioning,
+        accessoryMaterials
       );
 
       setGenState(prev => ({
@@ -279,6 +330,76 @@ const MainApp: React.FC = () => {
 
   const handleCancelRefinement = () => {
     setPendingRefinement(null);
+  };
+
+  // EC Batch Generation
+  const handleBatchGenerate = async () => {
+    const validImages: Record<string, string> = {};
+    for (const [key, val] of Object.entries(uploadedImages) as [string, string | null][]) {
+      if (val) validImages[key] = val;
+    }
+    if (Object.keys(validImages).length === 0) return;
+
+    try {
+      setBatchStatus('generating');
+      setBatchResults([]);
+      setBatchSelectedIndex(null);
+      setBatchError(undefined);
+      setBatchProgress({ current: 0, total: 5 });
+      // Clear single shot result to show batch UI
+      setGenState(prev => ({ ...prev, status: 'idle', resultUrl: undefined }));
+
+      const apiKey = await getApiKey();
+      const analysis = await analyzeClothingItems(apiKey, validImages);
+
+      await generateECBatchShots(
+        apiKey,
+        analysis,
+        lighting,
+        mannequin,
+        scene,
+        validImages,
+        garmentMeasurements,
+        accessoryMeasurements,
+        accessoryPositioning,
+        accessoryMaterials,
+        (current, total, result) => {
+          setBatchProgress({ current, total });
+          if (result) {
+            setBatchResults(prev => [...prev, result]);
+            // Auto-select first completed shot
+            if (current === 1) setBatchSelectedIndex(0);
+          }
+        }
+      );
+
+      setBatchStatus('complete');
+      setBatchSelectedIndex(0);
+    } catch (err: unknown) {
+      console.error('Batch generation failed:', err);
+      setBatchError(err instanceof Error ? err.message : String(err));
+      setBatchStatus('error');
+      handleError(err);
+    }
+  };
+
+  const handleBatchDownloadAll = () => {
+    batchResults.forEach((result, i) => {
+      const link = document.createElement('a');
+      link.href = result.imageUrl;
+      link.download = `lumina-ec-${result.label.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`;
+      document.body.appendChild(link);
+      setTimeout(() => { link.click(); document.body.removeChild(link); }, i * 300);
+    });
+  };
+
+  const handleBatchDownloadSingle = (result: BatchShotResult) => {
+    const link = document.createElement('a');
+    link.href = result.imageUrl;
+    link.download = `lumina-ec-${result.label.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   if (hasApiKey === false) {
@@ -336,9 +457,11 @@ const MainApp: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-studio-900 text-white overflow-hidden font-sans">
-      <div className="w-80 md:w-96 flex-shrink-0 z-20 shadow-xl border-r border-studio-700">
-        <ControlPanel
+    <div className="flex flex-row h-[100dvh] bg-studio-950 text-white font-sans overflow-x-auto overflow-y-hidden snap-x snap-mandatory">
+
+      {/* Slide 1: Controls */}
+      <div className="min-w-[100vw] w-[100vw] h-full snap-start flex flex-col">
+        <TopControlPanel
           onImageUpload={handleImageUpload}
           lighting={lighting}
           setLighting={setLighting}
@@ -347,104 +470,168 @@ const MainApp: React.FC = () => {
           scene={scene}
           setScene={setScene}
           onGenerate={handleGenerate}
+          onBatchGenerate={handleBatchGenerate}
           genState={genState}
           uploadedImages={uploadedImages}
           garmentMeasurements={garmentMeasurements}
           setGarmentMeasurements={setGarmentMeasurements}
+          accessoryMeasurements={accessoryMeasurements}
+          setAccessoryMeasurements={setAccessoryMeasurements}
+          accessoryPositioning={accessoryPositioning}
+          setAccessoryPositioning={setAccessoryPositioning}
+          accessoryMaterials={accessoryMaterials}
+          setAccessoryMaterials={setAccessoryMaterials}
+          onApiSettings={() => {
+            localStorage.removeItem('gemini_api_key');
+            setHasApiKey(false);
+            setManualKey('');
+          }}
         />
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]">
-        <header className="h-16 flex items-center justify-between px-8 border-b border-studio-700/50 backdrop-blur-sm bg-studio-900/50 z-10">
-          <div className="flex items-center space-x-4">
-            <h2 className="text-xs font-bold tracking-widest uppercase text-gray-400">
-              {scene.isSetup ? 'Studio Setup' : 'Render Preview'}
-            </h2>
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-          </div>
-          <div className="flex items-center space-x-6">
-            <div className="text-[10px] uppercase tracking-widest text-gray-500">
-              {genState.status === 'idle' ? 'Ready' : genState.status}
-            </div>
-            <div className="h-4 w-px bg-studio-700"></div>
-            <button
-              onClick={() => {
-                localStorage.removeItem('gemini_api_key');
-                setHasApiKey(false);
-                setManualKey('');
-              }}
-              className="text-[9px] uppercase tracking-wider text-gray-500 font-bold hover:text-studio-accent transition-colors flex items-center space-x-1"
-              title="Change API Key"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span>API Settings</span>
-            </button>
-          </div>
-        </header>
+      {/* Slide 2: Main Workspace (Single Shot / Preview) */}
+      <div className="min-w-[100vw] w-[100vw] h-full snap-start flex overflow-hidden min-h-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] relative">
+        <main className="flex-1 p-6 flex gap-6 overflow-hidden h-full items-start justify-center">
 
-        <main className="flex-1 p-8 flex gap-8 overflow-hidden">
-          <div className={`transition-all duration-700 ease-in-out flex flex-col ${genState.resultUrl ? 'w-1/3' : 'w-full'}`}>
-            {(genState.status === 'analyzing' || genState.status === 'generating') ? (
-              <LoadingAnimation stage={genState.status} />
-            ) : (
-              <div className="flex-1 rounded-2xl overflow-hidden border border-studio-700 relative bg-studio-800 shadow-2xl flex items-center justify-center">
-                <div className="text-center p-8">
-                  <div className="text-6xl mb-6 transform hover:scale-110 transition-transform duration-500 cursor-default">📸</div>
-                  <h2 className="text-xl font-light tracking-[0.2em] mb-4 text-white">STUDIO READY</h2>
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[10px] uppercase tracking-widest text-gray-400 text-left border-t border-b border-studio-700/50 py-4 my-4 max-w-xs mx-auto">
-                    <span>Shot Type</span> <span className="text-right text-studio-accent font-bold">{scene.shotType.replace('_', ' ')}</span>
-                    <span>Lighting</span> <span className="text-right text-white">{scene.lightingPreset.replace('_', ' ')}</span>
-                    <span>Style</span> <span className="text-right text-white">{mannequin.editorialStyle}</span>
-                    <span>Lens</span> <span className="text-right text-white">{scene.focalLength}</span>
-                    <span>Pose</span> <span className="text-right text-white">{mannequin.pose.replace(/_/g, ' ')}</span>
-                    <span>Model</span> <span className="text-right text-white">{mannequin.gender} / {mannequin.ethnicity}</span>
-                  </div>
-                  <p className="text-gray-600 text-xs">Configure your shot and click Generate</p>
+          <div className="flex flex-col h-full w-full max-w-5xl transition-all duration-500 ease-in-out">
+            {genState.resultUrl ? (
+              // Result View
+              <div className="flex-1 flex flex-col animate-fadeIn h-full min-h-0">
+                <div className="flex-1 rounded-2xl overflow-hidden border border-studio-accent/20 shadow-[0_0_50px_-12px_rgba(139,92,246,0.3)] bg-black relative group mb-3">
+                  <img src={genState.resultUrl} alt="Output" className="w-full h-full object-contain" />
                 </div>
+
+                {/* Action Bar */}
+                <div className="flex items-center gap-2 mb-3">
+                  <button
+                    onClick={handleDownload}
+                    className="flex-1 py-2.5 bg-white text-black rounded-lg font-bold text-[10px] uppercase tracking-wider hover:bg-studio-accent hover:text-white transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    Download
+                  </button>
+                  <button
+                    onClick={handleGenerate}
+                    className="flex-1 py-2.5 bg-studio-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-wider hover:bg-studio-600 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                    Re-generate
+                  </button>
+                  <button
+                    onClick={() => {
+                      const params = { mannequin: { editorialStyle: mannequin.editorialStyle, lightingPreset: scene.lightingPreset, shotType: scene.shotType, pose: mannequin.pose, ethnicity: mannequin.ethnicity }, scene: { focalLength: scene.focalLength, background: scene.background } };
+                      navigator.clipboard.writeText(JSON.stringify(params, null, 2));
+                    }}
+                    className="py-2.5 px-3 bg-studio-800 text-gray-400 rounded-lg font-bold text-[10px] uppercase tracking-wider hover:bg-studio-700 hover:text-white transition-colors border border-studio-700"
+                    title="Copy Parameters"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                  </button>
+                </div>
+
+                {/* Generation History */}
+                <div className="h-24 flex-shrink-0">
+                  <GenerationHistory
+                    items={history}
+                    currentId={currentHistoryId}
+                    onSelect={(item) => {
+                      setGenState(prev => ({ ...prev, resultUrl: item.imageUrl, status: 'complete' }));
+                      setCurrentHistoryId(item.id);
+                    }}
+                    onReuse={(item) => {
+                      setMannequin(prev => ({ ...prev, editorialStyle: item.params.editorialStyle as any, pose: item.params.pose as any, ethnicity: item.params.ethnicity as any, gender: item.params.gender as any }));
+                      setScene(prev => ({ ...prev, lightingPreset: item.params.lightingPreset as any, shotType: item.params.shotType as any }));
+                    }}
+                  />
+                </div>
+
+                <div className="bg-studio-800 rounded-xl border border-studio-700 p-4 mt-3">
+                  {pendingRefinement ? (
+                    <RefinementConfirmation
+                      interpretation={pendingRefinement}
+                      onConfirm={handleConfirmRefinement}
+                      onCancel={handleCancelRefinement}
+                      isProcessing={isRefining}
+                    />
+                  ) : (
+                    <RefinementForm
+                      onSubmit={handleRefinementRequest}
+                      uploadedImages={uploadedImages}
+                      isProcessing={isRefining}
+                    />
+                  )}
+                </div>
+              </div>
+            ) : (
+              // Studio Ready / Loading View
+              <div className="flex-1 flex flex-col h-full bg-studio-800/50 rounded-2xl border border-studio-700 overflow-hidden relative">
+                {(genState.status === 'analyzing' || genState.status === 'generating') ? (
+                  <LoadingAnimation stage={genState.status} />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center p-8">
+                      <div className="text-6xl mb-6 transform hover:scale-110 transition-transform duration-500 cursor-default">📸</div>
+                      <h2 className="text-xl font-light tracking-[0.2em] mb-4 text-white">STUDIO READY</h2>
+                      <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[10px] uppercase tracking-widest text-gray-400 text-left border-t border-b border-studio-700/50 py-4 my-4 max-w-xs mx-auto">
+                        <span>Shot Type</span> <span className="text-right text-studio-accent font-bold">{scene.shotType.replace('_', ' ')}</span>
+                        <span>Lighting</span> <span className="text-right text-white">{scene.lightingPreset.replace('_', ' ')}</span>
+                        <span>Style</span> <span className="text-right text-white">{mannequin.editorialStyle}</span>
+                        <span>Lens</span> <span className="text-right text-white">{scene.focalLength}</span>
+                        <span>Pose</span> <span className="text-right text-white">{mannequin.pose.replace(/_/g, ' ')}</span>
+                        <span>Model</span> <span className="text-right text-white">{mannequin.gender} / {mannequin.ethnicity}</span>
+                      </div>
+                      <p className="text-gray-600 text-xs">Configure your shot in the top panel and click Generate</p>
+                    </div>
+                  </div>
+                )}
                 <div className="absolute top-4 left-4 flex gap-2">
                   <span className="px-2 py-1 bg-black/60 rounded text-[8px] uppercase font-bold text-white/50 backdrop-blur-md">Layout Preview</span>
                 </div>
               </div>
             )}
           </div>
-
-          {genState.resultUrl && (
-            <div className="flex-1 flex flex-col animate-fadeIn h-full">
-              <div className="flex-1 rounded-2xl overflow-hidden border border-studio-accent/20 shadow-[0_0_50px_-12px_rgba(139,92,246,0.3)] bg-black relative group mb-4">
-                <img src={genState.resultUrl} alt="Output" className="w-full h-full object-contain" />
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/40 to-transparent p-8 translate-y-full group-hover:translate-y-0 transition-transform duration-500">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <h3 className="text-white font-light text-lg tracking-wider">Professional Shot</h3>
-                      <p className="text-gray-400 text-[10px] uppercase tracking-widest mt-1">2K • {scene.lightingPreset} • {mannequin.editorialStyle}</p>
-                    </div>
-                    <button onClick={handleDownload} className="px-6 py-2.5 bg-white text-black rounded-full font-bold text-[10px] uppercase tracking-tighter hover:bg-studio-accent hover:text-white transition-colors">Download Asset</button>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-studio-800 rounded-xl border border-studio-700 p-4">
-                {pendingRefinement ? (
-                  <RefinementConfirmation
-                    interpretation={pendingRefinement}
-                    onConfirm={handleConfirmRefinement}
-                    onCancel={handleCancelRefinement}
-                    isProcessing={isRefining}
-                  />
-                ) : (
-                  <RefinementForm
-                    onSubmit={handleRefinementRequest}
-                    uploadedImages={uploadedImages}
-                    isProcessing={isRefining}
-                  />
-                )}
-              </div>
-            </div>
-          )}
         </main>
       </div>
+
+      {/* Slide 3: EC Batch Workspace (Right) - Only if active */}
+      {batchStatus !== 'idle' && (
+        <div className="min-w-[100vw] w-[100vw] h-full snap-start flex flex-col min-w-0 bg-studio-800/30 border border-studio-700/50 p-4">
+          <BatchGenerationPanel
+            status={batchStatus}
+            currentShot={batchProgress.current}
+            totalShots={batchProgress.total}
+            results={batchResults}
+            selectedIndex={batchSelectedIndex}
+            onSelectShot={setBatchSelectedIndex}
+            onDownloadAll={handleBatchDownloadAll}
+            onDownloadSingle={handleBatchDownloadSingle}
+            error={batchError}
+          />
+        </div>
+      )}
+
+      {/* Slide Navigation Arrows (Floating) */}
+      <div className="fixed bottom-6 right-6 z-50 flex gap-2">
+        <button
+          onClick={() => {
+            document.querySelector('.snap-x')?.scrollBy({ left: -window.innerWidth, behavior: 'smooth' });
+          }}
+          className="p-4 bg-studio-800 text-white rounded-full shadow-lg border border-studio-600 hover:bg-studio-700 active:scale-95 transition-all"
+          title="Previous Slide"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+        </button>
+        <button
+          onClick={() => {
+            document.querySelector('.snap-x')?.scrollBy({ left: window.innerWidth, behavior: 'smooth' });
+          }}
+          className="p-4 bg-studio-accent text-white rounded-full shadow-lg border border-studio-500 hover:bg-studio-600 active:scale-95 transition-all"
+          title="Next Slide"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
+      </div>
+
     </div>
   );
 };
@@ -461,6 +648,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <MainApp />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/app/new"
+            element={
+              <ProtectedRoute>
+                <NewGenerationPage />
               </ProtectedRoute>
             }
           />

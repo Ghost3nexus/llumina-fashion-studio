@@ -20,11 +20,15 @@ export default function RefinementForm({ onSubmit, uploadedImages, isProcessing 
         ...(uploadedImages.outer ? [{ value: 'outer' as RefinementTarget, label: 'Outer' }] : []),
         ...(uploadedImages.inner ? [{ value: 'inner' as RefinementTarget, label: 'Inner' }] : []),
         ...(uploadedImages.shoes ? [{ value: 'shoes' as RefinementTarget, label: 'Shoes' }] : []),
+        ...(uploadedImages.bag ? [{ value: 'bag' as RefinementTarget, label: 'Bag' }] : []),
+        ...(uploadedImages.sunglasses ? [{ value: 'sunglasses' as RefinementTarget, label: 'Sunglasses' }] : []),
+        ...(uploadedImages.glasses ? [{ value: 'glasses' as RefinementTarget, label: 'Glasses' }] : []),
+        ...(uploadedImages.accessories ? [{ value: 'accessories' as RefinementTarget, label: 'Accessories' }] : []),
     ];
 
     // Define which change types are supported for each target
     const getAvailableChangeTypes = (currentTarget: RefinementTarget): { value: RefinementChangeType; label: string; placeholder: string }[] => {
-        const clothingItems = ['tops', 'pants', 'outer', 'inner', 'shoes'];
+        const clothingItems = ['tops', 'pants', 'outer', 'inner', 'shoes', 'bag', 'sunglasses', 'glasses', 'accessories'];
 
         // Clothing items support all change types
         if (clothingItems.includes(currentTarget)) {
