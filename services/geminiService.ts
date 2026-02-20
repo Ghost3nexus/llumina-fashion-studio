@@ -1304,6 +1304,27 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
     ];
 
 
+    // ─── Aspect Ratio by Output Purpose ────────────────────────────────────
+    const ASPECT_RATIO_MAP: Record<string, string> = {
+      ec_product: '3:4',   // EC標準: ポートレート縦型
+      instagram: '1:1',   // Instagram: 正方形
+      campaign: '16:9',  // 広告キャンペーン: ワイドシネマ
+      campaign_editorial: '16:9',  // 旧キー互換
+      lookbook: '3:4',   // ルックブック: ポートレート
+    };
+    const purposeKey = (scene.outputPurpose as string) ?? '';
+    const aspectRatio = ASPECT_RATIO_MAP[purposeKey] ?? '3:4';
+
+
+    console.log(`[Lumina] Output purpose: ${scene.outputPurpose} → AspectRatio: ${aspectRatio}`);
+
+    const aspectRatioPromptNote = `\n      IMAGE CANVAS: This image MUST be rendered at ${aspectRatio} aspect ratio.
+      ${aspectRatio === '1:1' ? 'SQUARE CANVAS (1:1): Compose the model centrally or with creative rule-of-thirds offset. The frame height equals the frame width.' : ''}
+      ${aspectRatio === '16:9' ? 'WIDE LANDSCAPE CANVAS (16:9): Compose with cinematic horizontal framing. Generous negative space on sides. Model may be slightly off-center for dynamic composition.' : ''}
+      ${aspectRatio === '3:4' ? 'PORTRAIT CANVAS (3:4): Full-length portrait framing, head to toe. Ample headroom above and shoe clearance below.' : ''}`;
+
+    const finalPrompt = prompt + aspectRatioPromptNote;
+
     let lastError: unknown;
     for (const modelName of MODELS_TO_TRY) {
       try {
@@ -1312,14 +1333,16 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
           model: modelName,
           contents: {
             parts: [
-              { text: prompt },
+              { text: finalPrompt },
               ...imageParts
             ]
           },
           config: {
             responseModalities: ["TEXT", "IMAGE"],
-          }
+            aspectRatio,
+          } as any,
         });
+
 
         if (response.candidates?.[0]?.content) {
           for (const part of (response.candidates?.[0]?.content?.parts || [])) {
