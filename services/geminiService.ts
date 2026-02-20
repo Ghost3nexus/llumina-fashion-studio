@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { LightingConfig, MannequinConfig, VisionAnalysis, SceneConfig, DetailedGarmentMeasurements, DetailedAccessoryMeasurements, DetailedAccessoryPositioning, DetailedAccessoryMaterials, RefinementRequest, RefinementInterpretation, RefinementTarget, RefinementChangeType, ShotType, PoseType } from "../types";
+import { LightingConfig, MannequinConfig, VisionAnalysis, ItemAnalysis, SceneConfig, DetailedGarmentMeasurements, DetailedAccessoryMeasurements, DetailedAccessoryPositioning, DetailedAccessoryMaterials, RefinementRequest, RefinementInterpretation, RefinementTarget, RefinementChangeType, ShotType, PoseType } from "../types";
 
 
 const parseBase64 = (b64: string) => {
@@ -41,213 +41,183 @@ const ensureSupportedFormat = async (base64: string): Promise<string> => {
   });
 };
 
+// ─── Per-item schema (shared) ───────────────────────────────────────────────
+
+const ITEM_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    description: { type: Type.STRING },
+    fabric: { type: Type.STRING },
+    fabricWeight: { type: Type.STRING },
+    style: { type: Type.STRING },
+    silhouette: { type: Type.STRING },
+    fit: { type: Type.STRING },
+    colorHex: { type: Type.STRING },
+    colorDescription: { type: Type.STRING },
+    pattern: { type: Type.STRING },
+    construction: { type: Type.STRING },
+    hardware: { type: Type.STRING },
+    neckline: { type: Type.STRING },
+    sleeveLength: { type: Type.STRING },
+  },
+  required: ['description', 'fabric', 'style', 'colorHex'],
+} as const;
+
+// ─── Single-item analysis (focused call) ────────────────────────────────────
+
+const analyzeOneItem = async (
+  ai: GoogleGenAI,
+  key: string,
+  b64: string
+): Promise<[string, ItemAnalysis]> => {
+  const isAccessory = ['bag', 'sunglasses', 'glasses', 'accessories'].includes(key);
+  const validImage = await ensureSupportedFormat(b64);
+  const { mimeType, data } = parseBase64(validImage);
+  const category = key.toUpperCase();
+
+  const systemInstruction = `You are a senior fashion analyst and textile expert with 20 years of experience at luxury brands.
+Your task is to perform a highly detailed structural analysis of a single ${category} garment/item.
+
+CHAIN-OF-THOUGHT ANALYSIS PROCESS:
+Step 1 — CATEGORY: Confirm this is a ${key} item.
+Step 2 — MATERIAL/FABRIC: Examine the texture, weave structure, sheen, drape, and surface finish.
+  • Be specific: NOT "denim" but "12oz selvedge denim with a slight crosshatch texture"
+  • NOT "cotton" but "brushed cotton twill, medium weight"
+  • Estimate weight: lightweight / medium-weight / heavy
+Step 3 — CONSTRUCTION/DETAILS: Look closely at stitching, seams, pockets, closures, hardware.
+  • Example: "5-pocket construction, bartack reinforced, copper rivets, chain-stitched hem"
+  • Hardware: "matte black YKK zip, antique brass grommets, tortoiseshell buttons"
+Step 4 — FIT & SILHOUETTE: Analyze the garment's shape.
+  • Silhouette: slim-fit / relaxed / oversized / boxy / A-line / straight / wide-leg
+  • Fit: skinny / straight / relaxed / loose / tailored / oversized
+${!isAccessory ? `Step 5 — STRUCTURE DETAILS:
+  • Neckline: crew / V-neck / collar / hood / cowl / turtleneck / scoop / off-shoulder
+  • Sleeve length: sleeveless / cap / short / 3/4 / long / extra-long` : ''}
+Step 6 — COLOR & PATTERN:
+  • Primary color in HEX (be precise: #1A1A2E not just "dark blue")
+  • Color name: "Midnight Indigo #1A1A2E"
+  • Pattern: solid / fine stripe / wide stripe / micro-check / plaid / houndstooth / floral / graphic / animal print / tie-dye
+
+FEW-SHOT EXAMPLE (quality target):
+{
+  "description": "Oversized boxy denim jacket in midnight navy, single-breasted with spread collar and chest pockets",
+  "fabric": "14oz raw selvedge denim with a subtle diagonal twill weave",
+  "fabricWeight": "heavy",
+  "style": "oversized boxy trucker jacket",
+  "silhouette": "boxy oversized",
+  "fit": "relaxed",
+  "colorHex": "#1C2340",
+  "colorDescription": "Midnight Indigo Navy #1C2340",
+  "pattern": "solid",
+  "construction": "flat-felled seams, copper rivet reinforcements, 4 button closure, chest welt pockets, back yoke",
+  "hardware": "antique copper buttons with embossed detail, YKK copper-tooth zip on side pockets",
+  "neckline": "spread collar",
+  "sleeveLength": "long"
+}
+
+Return ONLY valid JSON for the ${key} item. No explanation text.`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: {
+      parts: [
+        { text: `Analyze this ${key} garment/item in detail following the chain-of-thought process.` },
+        { inlineData: { mimeType, data } },
+      ],
+    },
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: ITEM_SCHEMA as any,
+      temperature: 0.2, // Lower temp = more precise, less hallucination
+    },
+  });
+
+  const text = response.text;
+  if (!text) throw new Error(`No analysis returned for ${key}`);
+  const parsed = JSON.parse(text) as ItemAnalysis;
+  console.log(`✅ [${key}] Analyzed:`, JSON.stringify(parsed, null, 2));
+  return [key, parsed];
+};
+
+// ─── Overall style aggregation ───────────────────────────────────────────────
+
+const analyzeOverallStyle = async (
+  ai: GoogleGenAI,
+  items: Record<string, ItemAnalysis>
+): Promise<{ overallStyle: string; keywords: string[] }> => {
+  const summary = Object.entries(items)
+    .map(([k, v]) => `${k}: ${v.description} (${v.silhouette ?? ''} ${v.fabric})`)
+    .join('\n');
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: {
+      parts: [{ text: `Based on this outfit composition, provide an overallStyle description (2-3 sentences) and 5-8 fashion keywords.\n\n${summary}` }],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          overallStyle: { type: Type.STRING },
+          keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ['overallStyle', 'keywords'],
+      },
+      temperature: 0.4,
+    },
+  });
+
+  const text = response.text;
+  if (!text) return { overallStyle: 'Contemporary fashion ensemble', keywords: [] };
+  return JSON.parse(text);
+};
+
+// ─── Main export ─────────────────────────────────────────────────────────────
+
 export const analyzeClothingItems = async (apiKey: string, images: Record<string, string>): Promise<VisionAnalysis> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const parts = [];
-    const ACCESSORY_TYPES = ['bag', 'sunglasses', 'glasses', 'accessories'];
 
-    console.log('🔍 analyzeClothingItems START');
+    console.log('🔍 analyzeClothingItems START (enhanced parallel analysis)');
     console.log('📥 Images to analyze:', Object.keys(images));
 
-    for (const [key, b64] of Object.entries(images)) {
-      if (!b64) continue;
-      // Skip model image for clothing analysis
-      if (key === 'model') continue;
 
-      const validImage = await ensureSupportedFormat(b64);
-      const { mimeType, data } = parseBase64(validImage);
+    // Filter valid garment images (skip model)
+    const validEntries = Object.entries(images).filter(
+      ([key, b64]) => b64 && key !== 'model'
+    );
 
-      const isAccessory = ACCESSORY_TYPES.includes(key);
-      const itemType = isAccessory ? 'ACCESSORY' : 'GARMENT';
+    if (validEntries.length === 0) throw new Error('No images provided for analysis');
 
-      // Explicit instruction for each image
-      parts.push({
-        text: `ANALYZE THIS ${key.toUpperCase()} ${itemType}:
-This image shows a ${key} item. You MUST extract its details and include it in the "${key}" field of your JSON response.
-${isAccessory ? 'For accessories, identify material (leather, metal, plastic, acetate, etc.), color, and style.' : ''}
-Do not omit this item from your analysis.`
-      });
-      parts.push({ inlineData: { mimeType, data } });
+    console.log(`📊 Analyzing ${validEntries.length} items in parallel...`);
 
-      console.log(`✓ Added ${key} ${itemType.toLowerCase()} for analysis`);
+    // Phase 3: Parallel per-item analysis for undivided AI focus
+    const itemResults = await Promise.all(
+      validEntries.map(([key, b64]) => analyzeOneItem(ai, key, b64))
+    );
+
+    const itemMap: Record<string, ItemAnalysis> = {};
+    for (const [key, analysis] of itemResults) {
+      itemMap[key] = analysis;
     }
 
-    if (parts.length === 0) throw new Error("No images provided for analysis");
+    // Aggregate overall style from all items
+    const overall = await analyzeOverallStyle(ai, itemMap);
 
-    console.log(`📊 Total images to analyze: ${parts.length / 2}`);
+    const analysis: VisionAnalysis = {
+      ...itemMap as any,
+      overallStyle: overall.overallStyle,
+      keywords: overall.keywords,
+    };
 
-    // Build required fields array based on uploaded images
-    const requiredFields = ["overallStyle", "keywords"];
-    const uploadedItems: string[] = [];
-
-    for (const key of Object.keys(images)) {
-      if (images[key] && key !== 'model') {
-        uploadedItems.push(key);
-        requiredFields.push(key);
-      }
-    }
-
-    console.log('📋 Required fields:', requiredFields);
-    console.log('📦 Uploaded items:', uploadedItems);
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: {
-        parts: parts,
-      },
-      config: {
-        systemInstruction: `You are a high-end fashion consultant and texture analyst.
-
-CRITICAL INSTRUCTION: For EACH reference image provided, you MUST analyze it and include it in the corresponding field of your JSON response.
-
-GARMENTS:
-- If you see "ANALYZE THIS TOPS GARMENT", extract details and populate the "tops" field
-- If you see "ANALYZE THIS PANTS GARMENT", extract details and populate the "pants" field
-- If you see "ANALYZE THIS OUTER GARMENT", extract details and populate the "outer" field
-- If you see "ANALYZE THIS INNER GARMENT", extract details and populate the "inner" field
-- If you see "ANALYZE THIS SHOES GARMENT", extract details and populate the "shoes" field
-
-ACCESSORIES:
-- If you see "ANALYZE THIS BAG ACCESSORY", extract details and populate the "bag" field
-  * Material: leather, canvas, nylon, synthetic, etc.
-  * Style: handbag, tote, shoulder, crossbody, clutch, backpack, etc.
-  * Hardware: gold, silver, brass, etc.
-  
-- If you see "ANALYZE THIS SUNGLASSES ACCESSORY", extract details and populate the "sunglasses" field
-  * Frame material: plastic, metal, acetate, etc.
-  * Lens type: polarized, gradient, mirrored, etc.
-  * Style: aviator, wayfarer, cat-eye, round, square, etc.
-  
-- If you see "ANALYZE THIS GLASSES ACCESSORY", extract details and populate the "glasses" field
-  * Frame material: plastic, metal, titanium, acetate, etc.
-  * Style: round, square, rectangular, cat-eye, aviator, etc.
-  
-- If you see "ANALYZE THIS ACCESSORIES ACCESSORY", extract details and populate the "accessories" field
-  * Type: necklace, earrings, bracelet, watch, ring, hat, scarf, etc.
-  * Material: gold, silver, platinum, leather, beads, fabric, etc.
-
-DO NOT omit any provided reference images from your analysis. Every image you receive MUST appear in the final JSON.
-
-For each item, identify with extreme precision:
-1. Exact material/fabric (e.g., genuine leather, stainless steel, acetate plastic, 12oz denim)
-2. Color values in HEX and descriptive terms (e.g., #2C3E50 "Midnight Navy")
-3. Subtle details: stitching, hardware finish, brand logos, patterns, textures
-
-Return a complete JSON object with ALL provided items included.`,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            tops: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            pants: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            outer: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            inner: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            shoes: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            bag: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            sunglasses: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            glasses: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            accessories: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                fabric: { type: Type.STRING },
-                style: { type: Type.STRING },
-                colorHex: { type: Type.STRING },
-              }
-            },
-            overallStyle: { type: Type.STRING },
-            keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-          },
-          required: requiredFields  // Dynamic required fields based on uploaded images
-        }
-      }
-    });
-
-    const text = response.text;
-    if (!text) throw new Error("No analysis returned");
-
-    const analysis = JSON.parse(text) as VisionAnalysis;
-
-    console.log('📤 Analysis result:', JSON.stringify(analysis, null, 2));
-    console.log('✅ Analysis includes - tops:', !!analysis.tops);
-    console.log('✅ Analysis includes - pants:', !!analysis.pants);
-    console.log('✅ Analysis includes - outer:', !!analysis.outer);
-    console.log('✅ Analysis includes - inner:', !!analysis.inner);
-    console.log('✅ Analysis includes - shoes:', !!analysis.shoes);
-    console.log('✅ Analysis includes - bag:', !!analysis.bag);
-    console.log('✅ Analysis includes - sunglasses:', !!analysis.sunglasses);
-    console.log('✅ Analysis includes - glasses:', !!analysis.glasses);
-    console.log('✅ Analysis includes - accessories:', !!analysis.accessories);
+    console.log('📤 Full analysis result:', JSON.stringify(analysis, null, 2));
     console.log('🔍 analyzeClothingItems END');
 
     return analysis;
   } catch (error) {
-    console.error("Vision Analysis Failed:", error);
+    console.error('Vision Analysis Failed:', error);
     throw error;
   }
 };

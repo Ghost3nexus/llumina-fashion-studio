@@ -263,9 +263,19 @@ export interface SceneConfig {
 export interface ItemAnalysis {
   description: string;
   fabric: string;
+  fabricWeight?: string;       // "lightweight" | "medium-weight" | "heavy"
   style: string;
+  silhouette?: string;         // "slim-fit" | "oversized" | "A-line" | "boxy" | "regular"
+  fit?: string;                // "skinny" | "straight" | "relaxed" | "loose" | "tailored"
   colorHex?: string;
+  colorDescription?: string;   // e.g. "Midnight Navy #232931"
+  pattern?: string;            // "solid" | "striped" | "checked" | "graphic" | "floral"
+  construction?: string;       // seam details, pocket types, hem finish
+  hardware?: string;           // button, zipper, buckle materials
+  neckline?: string;           // "crew" | "V-neck" | "collar" | "hood" | "turtleneck"
+  sleeveLength?: string;       // "sleeveless" | "short" | "3/4" | "long"
 }
+
 
 export interface VisionAnalysis {
   tops?: ItemAnalysis;
