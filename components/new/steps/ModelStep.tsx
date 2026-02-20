@@ -302,8 +302,8 @@ export const ModelStep: React.FC<ModelStepProps> = ({
                             key={preset.id}
                             onClick={() => applyBrandPreset(preset)}
                             className={`px-2.5 py-2 rounded-lg text-[10px] font-semibold transition-all text-left ${activeBrandPreset === preset.id
-                                    ? 'bg-violet-500/20 text-violet-300 border border-violet-500/50'
-                                    : 'bg-zinc-800/60 text-zinc-400 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-200'
+                                ? 'bg-violet-500/20 text-violet-300 border border-violet-500/50'
+                                : 'bg-zinc-800/60 text-zinc-400 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-200'
                                 }`}
                         >
                             {preset.label}
