@@ -105,6 +105,32 @@ const NewGenerationPage: React.FC = () => {
         setUploadedImages((prev) => ({ ...prev, [type]: null }));
     }, []);
 
+    // Alt angle images: itemKey → [b64_0, b64_1, b64_2]
+    const [altImages, setAltImages] = useState<Record<string, string[]>>({});
+
+    const handleAltImageUpload = useCallback((itemKey: string, index: number, file: File) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            if (typeof result === 'string') {
+                setAltImages(prev => {
+                    const arr = [...(prev[itemKey] ?? [])];
+                    arr[index] = result;
+                    return { ...prev, [itemKey]: arr };
+                });
+            }
+        };
+        reader.readAsDataURL(file);
+    }, []);
+
+    const handleAltImageClear = useCallback((itemKey: string, index: number) => {
+        setAltImages(prev => {
+            const arr = [...(prev[itemKey] ?? [])];
+            arr[index] = '';
+            return { ...prev, [itemKey]: arr };
+        });
+    }, []);
+
     const handleTogglePurpose = useCallback((purpose: string) => {
         setSelectedPurposes((prev) => {
             const next = new Set(prev);
@@ -144,10 +170,16 @@ const NewGenerationPage: React.FC = () => {
                 return;
             }
 
-            // 2) アップロード済み画像を Record<string, string> にまとめる
+            // 2) アップロード済み画像を Record<string, string> にまとめ、alt images も合流させる
             const validImages: Record<string, string> = {};
             for (const [key, val] of Object.entries(uploadedImages)) {
                 if (val) validImages[key] = val;
+            }
+            // Merge alt angle images as tops_alt_0, tops_alt_1, etc.
+            for (const [itemKey, alts] of Object.entries(altImages)) {
+                alts.forEach((b64, i) => {
+                    if (b64) validImages[`${itemKey}_alt_${i}`] = b64;
+                });
             }
 
             // 3) 解析（服の特徴・カラー・素材を Gemini で分析）
@@ -422,6 +454,9 @@ const NewGenerationPage: React.FC = () => {
                         uploadedImages={uploadedImages}
                         onImageUpload={handleImageUpload}
                         onImageClear={handleImageClear}
+                        altImages={altImages}
+                        onAltImageUpload={handleAltImageUpload}
+                        onAltImageClear={handleAltImageClear}
                         selectedBrand={selectedBrand}
                         onSelectBrand={setSelectedBrand}
                         savedBrands={savedBrands}

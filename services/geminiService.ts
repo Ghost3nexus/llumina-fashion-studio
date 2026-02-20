@@ -68,15 +68,29 @@ const ITEM_SCHEMA = {
 const analyzeOneItem = async (
   ai: GoogleGenAI,
   key: string,
-  b64: string
+  b64: string,
+  altImages: string[] = [] // additional angle reference images
 ): Promise<[string, ItemAnalysis]> => {
   const isAccessory = ['bag', 'sunglasses', 'glasses', 'accessories'].includes(key);
   const validImage = await ensureSupportedFormat(b64);
   const { mimeType, data } = parseBase64(validImage);
   const category = key.toUpperCase();
 
+  // Prepare alt angle parts (back / side / detail shots)
+  const altParts: any[] = [];
+  const angleLabels = ['BACK VIEW', 'SIDE / DETAIL VIEW', 'CLOSE-UP DETAIL'];
+  for (let i = 0; i < altImages.length; i++) {
+    const validAlt = await ensureSupportedFormat(altImages[i]);
+    const { mimeType: altMime, data: altData } = parseBase64(validAlt);
+    altParts.push({ text: `ADDITIONAL REFERENCE — ${angleLabels[i] ?? `ANGLE ${i + 1}`}: Use this to understand back/side construction details.` });
+    altParts.push({ inlineData: { mimeType: altMime, data: altData } });
+  }
+
+  const hasAlt = altParts.length > 0;
+
   const systemInstruction = `You are a senior fashion analyst and textile expert with 20 years of experience at luxury brands.
 Your task is to perform a highly detailed structural analysis of a single ${category} garment/item.
+${hasAlt ? `You have been provided ${altImages.length} additional reference image(s) showing different angles (back, side, detail). Use ALL reference images to give a complete 360° structural description.` : ''}
 
 CHAIN-OF-THOUGHT ANALYSIS PROCESS:
 Step 1 — CATEGORY: Confirm this is a ${key} item.
@@ -87,6 +101,7 @@ Step 2 — MATERIAL/FABRIC: Examine the texture, weave structure, sheen, drape, 
 Step 3 — CONSTRUCTION/DETAILS: Look closely at stitching, seams, pockets, closures, hardware.
   • Example: "5-pocket construction, bartack reinforced, copper rivets, chain-stitched hem"
   • Hardware: "matte black YKK zip, antique brass grommets, tortoiseshell buttons"
+${hasAlt ? '  • BACK CONSTRUCTION: Describe back yoke, center seam, rear pockets, collar stand from the additional angle images.\n  • SIDE CONSTRUCTION: Describe side seams, panels, and drape from side view images.' : ''}
 Step 4 — FIT & SILHOUETTE: Analyze the garment's shape.
   • Silhouette: slim-fit / relaxed / oversized / boxy / A-line / straight / wide-leg
   • Fit: skinny / straight / relaxed / loose / tailored / oversized
@@ -109,7 +124,7 @@ FEW-SHOT EXAMPLE (quality target):
   "colorHex": "#1C2340",
   "colorDescription": "Midnight Indigo Navy #1C2340",
   "pattern": "solid",
-  "construction": "flat-felled seams, copper rivet reinforcements, 4 button closure, chest welt pockets, back yoke",
+  "construction": "flat-felled seams, copper rivet reinforcements, 4 button closure, chest welt pockets, back yoke with center seam",
   "hardware": "antique copper buttons with embossed detail, YKK copper-tooth zip on side pockets",
   "neckline": "spread collar",
   "sleeveLength": "long"
@@ -121,8 +136,9 @@ Return ONLY valid JSON for the ${key} item. No explanation text.`;
     model: 'gemini-2.0-flash',
     contents: {
       parts: [
-        { text: `Analyze this ${key} garment/item in detail following the chain-of-thought process.` },
+        { text: `Analyze this ${key} garment/item in detail following the chain-of-thought process.${hasAlt ? ` Use ALL ${altImages.length + 1} reference images provided (main front view + additional angles).` : ''}` },
         { inlineData: { mimeType, data } },
+        ...altParts,
       ],
     },
     config: {
@@ -136,7 +152,7 @@ Return ONLY valid JSON for the ${key} item. No explanation text.`;
   const text = response.text;
   if (!text) throw new Error(`No analysis returned for ${key}`);
   const parsed = JSON.parse(text) as ItemAnalysis;
-  console.log(`✅ [${key}] Analyzed:`, JSON.stringify(parsed, null, 2));
+  console.log(`✅ [${key}] Analyzed${hasAlt ? ` (+${altImages.length} alt angles)` : ''}:`, JSON.stringify(parsed, null, 2));
   return [key, parsed];
 };
 
@@ -191,11 +207,24 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
 
     if (validEntries.length === 0) throw new Error('No images provided for analysis');
 
-    console.log(`📊 Analyzing ${validEntries.length} items in parallel...`);
+    console.log(`📊 Analyzing items in parallel...`);
 
-    // Phase 3: Parallel per-item analysis for undivided AI focus
+    // Separate main garment images from _alt_ angle images
+    const mainEntries = validEntries.filter(([key]) => !key.includes('_alt_'));
+    const altMap: Record<string, string[]> = {};
+    for (const [key, b64] of validEntries) {
+      if (key.includes('_alt_')) {
+        const baseKey = key.split('_alt_')[0];
+        (altMap[baseKey] ??= []).push(b64);
+      }
+    }
+
+    console.log('📷 Main items:', mainEntries.map(([k]) => k));
+    console.log('📷 Alt angles:', Object.entries(altMap).map(([k, v]) => `${k}(${v.length})`));
+
+    // Phase 3: Parallel per-item analysis — pass alt images to enrich analysis
     const itemResults = await Promise.all(
-      validEntries.map(([key, b64]) => analyzeOneItem(ai, key, b64))
+      mainEntries.map(([key, b64]) => analyzeOneItem(ai, key, b64, altMap[key] ?? []))
     );
 
     const itemMap: Record<string, ItemAnalysis> = {};
@@ -1285,16 +1314,30 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
       KEYWORDS: ${analysis.keywords.join(", ")}, ray-traced reflections, photorealistic clothing, luxury e-commerce.
     `;
 
-    // Prepare reference images for Gemini 3 Pro Image
+    // Prepare reference images for Gemini image generation
     const imageParts: any[] = [];
+    const altAngleLabels = ['BACK VIEW', 'SIDE / DETAIL VIEW', 'CLOSE-UP DETAIL'];
+    const altCounters: Record<string, number> = {};
+
     for (const [key, b64] of Object.entries(images)) {
       if (!b64) continue;
       const validRef = await ensureSupportedFormat(b64);
       const { mimeType, data } = parseBase64(validRef);
-      // Add text label and image as separate parts
-      imageParts.push({ text: `REFERENCE ${key.toUpperCase()}:` });
+
+      if (key.includes('_alt_')) {
+        // Alt angle image — label with base item + angle context
+        const baseKey = key.split('_alt_')[0];
+        const idx = altCounters[baseKey] ?? 0;
+        altCounters[baseKey] = idx + 1;
+        const angleLabel = altAngleLabels[idx] ?? `ANGLE ${idx + 1}`;
+        imageParts.push({ text: `REFERENCE ${baseKey.toUpperCase()} — ${angleLabel} (use for back/side detail accuracy):` });
+      } else {
+        // Main front reference image
+        imageParts.push({ text: `REFERENCE ${key.toUpperCase()}:` });
+      }
       imageParts.push({ inlineData: { mimeType, data } });
     }
+
 
     // モデル試行順（品質順）: アクセス可能なものを自動選択
     const MODELS_TO_TRY = [

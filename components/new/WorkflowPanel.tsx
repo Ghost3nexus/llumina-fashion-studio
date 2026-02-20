@@ -12,6 +12,9 @@ interface WorkflowPanelProps {
     uploadedImages: Record<string, string | null>;
     onImageUpload: (type: string, file: File) => void;
     onImageClear: (type: string) => void;
+    altImages: Record<string, string[]>;
+    onAltImageUpload: (itemKey: string, index: number, file: File) => void;
+    onAltImageClear: (itemKey: string, index: number) => void;
     // Brand
     selectedBrand: BrandProfile | null;
     onSelectBrand: (p: BrandProfile | null) => void;
@@ -112,6 +115,9 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = (props) => {
                         uploadedImages={props.uploadedImages}
                         onImageUpload={props.onImageUpload}
                         onImageClear={props.onImageClear}
+                        altImages={props.altImages}
+                        onAltImageUpload={props.onAltImageUpload}
+                        onAltImageClear={props.onAltImageClear}
                     />
                 );
             case 1:
