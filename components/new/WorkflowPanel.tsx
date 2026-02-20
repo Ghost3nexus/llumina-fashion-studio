@@ -37,6 +37,14 @@ interface WorkflowPanelProps {
     onVibeChange: (v: string) => void;
     pose: string;
     onPoseChange: (v: string) => void;
+    ethnicity: string;
+    onEthnicityChange: (v: string) => void;
+    skinTone: string;
+    onSkinToneChange: (v: string) => void;
+    hairColor: string;
+    onHairColorChange: (v: string) => void;
+    hairLength: string;
+    onHairLengthChange: (v: string) => void;
     measurements: string;
     onMeasurementsChange: (v: string) => void;
     // Output
@@ -139,6 +147,14 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = (props) => {
                         onVibeChange={props.onVibeChange}
                         pose={props.pose}
                         onPoseChange={props.onPoseChange}
+                        ethnicity={props.ethnicity}
+                        onEthnicityChange={props.onEthnicityChange}
+                        skinTone={props.skinTone}
+                        onSkinToneChange={props.onSkinToneChange}
+                        hairColor={props.hairColor}
+                        onHairColorChange={props.onHairColorChange}
+                        hairLength={props.hairLength}
+                        onHairLengthChange={props.onHairLengthChange}
                         measurements={props.measurements}
                         onMeasurementsChange={props.onMeasurementsChange}
                     />

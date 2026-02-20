@@ -185,7 +185,11 @@ export function buildMannequinConfig(
     bodyType: string,
     vibe: string,
     pose: string,
-    studioPresetId: string
+    studioPresetId: string,
+    ethnicity: string = 'east_asian',
+    skinTone: string = 'fair',
+    hairColor: string = 'black',
+    hairLength: string = 'medium',
 ): MannequinConfig {
     const mapping = STUDIO_MAP[studioPresetId as StudioPresetId] ?? STUDIO_MAP['clean-ecom'];
 
@@ -193,12 +197,16 @@ export function buildMannequinConfig(
         pose: POSE_MAP[pose] ?? 'ec_neutral',
         rotation: 0,
         gender: gender === 'male' ? 'male' : 'female',
-        ethnicity: 'east_asian',
+        ethnicity: (ethnicity as any) ?? 'east_asian',
         bodyType: BODY_TYPE_MAP[bodyType] ?? 'slim',
         ageGroup: AGE_GROUP_MAP[ageRange] ?? 'youthful',
         vibe: VIBE_MAP[vibe] ?? 'minimalist',
         editorialStyle: mapping.editorialStyle,
-    };
+        // Extra appearance details passed via metadata
+        skinTone,
+        hairColor,
+        hairLength,
+    } as MannequinConfig & { skinTone: string; hairColor: string; hairLength: string };
 }
 
 // ─── Shared API key helper (mirrors App.tsx getApiKey) ────────────────────

@@ -46,6 +46,10 @@ const NewGenerationPage: React.FC = () => {
     const [bodyType, setBodyType] = useState('slim');
     const [vibe, setVibe] = useState('minimalist');
     const [pose, setPose] = useState('ec_neutral');
+    const [ethnicity, setEthnicity] = useState('east_asian');
+    const [skinTone, setSkinTone] = useState('fair');
+    const [hairColor, setHairColor] = useState('black');
+    const [hairLength, setHairLength] = useState('medium');
     const [measurements, setMeasurements] = useState('');
 
     // Output state
@@ -151,7 +155,11 @@ const NewGenerationPage: React.FC = () => {
                         bodyType,
                         vibe,
                         pose,
-                        studioPreset
+                        studioPreset,
+                        ethnicity,
+                        skinTone,
+                        hairColor,
+                        hairLength,
                     );
 
                     // 本物の Gemini 生成（返り値は data:image/png;base64,... 文字列）
@@ -282,7 +290,7 @@ const NewGenerationPage: React.FC = () => {
                 })());
                 const lighting = buildLightingConfig(studioPreset);
                 const scene = buildSceneConfig(studioPreset, shotType, focalLength, shotCfg.outputPurpose);
-                const mannequin = buildMannequinConfig(gender, ageRange, bodyType, vibe, pose, studioPreset);
+                const mannequin = buildMannequinConfig(gender, ageRange, bodyType, vibe, pose, studioPreset, ethnicity, skinTone, hairColor, hairLength);
                 const validImages: Record<string, string> = {};
                 Object.entries(uploadedImages).forEach(([k, v]) => { if (v) validImages[k] = v; });
                 const hdImageUrl = await generateFashionShot(apiKey, analysis, lighting, mannequin, scene, validImages);
@@ -409,6 +417,14 @@ const NewGenerationPage: React.FC = () => {
                         onVibeChange={setVibe}
                         pose={pose}
                         onPoseChange={setPose}
+                        ethnicity={ethnicity}
+                        onEthnicityChange={setEthnicity}
+                        skinTone={skinTone}
+                        onSkinToneChange={setSkinTone}
+                        hairColor={hairColor}
+                        onHairColorChange={setHairColor}
+                        hairLength={hairLength}
+                        onHairLengthChange={setHairLength}
                         measurements={measurements}
                         onMeasurementsChange={setMeasurements}
                         selectedPurposes={selectedPurposes}
