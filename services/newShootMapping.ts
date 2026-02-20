@@ -109,20 +109,63 @@ export function buildSceneConfig(
 
 // ─── Output Purpose → ShotType / SceneConfig ──────────────────────────────
 
-interface PurposeShotConfig {
+export interface PurposeShotConfig {
     shotType: ShotType;
     outputPurpose: OutputPurpose;
     label: string;
     aspectLabel: string;
+    icon?: string;
 }
 
+// EC Product multi-view shots (same model, different angles)
+export const EC_VIEW_SHOTS: Record<string, PurposeShotConfig> = {
+    ec_front: {
+        shotType: 'full_body_front',
+        outputPurpose: 'ec_product',
+        label: '正面 Front',
+        aspectLabel: '3:4',
+        icon: '▼',
+    },
+    ec_back: {
+        shotType: 'full_body_back',
+        outputPurpose: 'ec_product',
+        label: '背面 Back',
+        aspectLabel: '3:4',
+        icon: '△',
+    },
+    ec_side: {
+        shotType: 'full_body_front', // 3/4 turn via rotation in mannequin
+        outputPurpose: 'ec_product',
+        label: '横 Side / 3Q',
+        aspectLabel: '3:4',
+        icon: '◁',
+    },
+    ec_top: {
+        shotType: 'bust_top',
+        outputPurpose: 'ec_product',
+        label: 'バストアップ',
+        aspectLabel: '3:4',
+        icon: '⬆',
+    },
+    ec_bottom: {
+        shotType: 'bottom_focus',
+        outputPurpose: 'ec_product',
+        label: 'ボトム詳細',
+        aspectLabel: '3:4',
+        icon: '⬇',
+    },
+};
+
 export const PURPOSE_SHOT_MAP: Record<string, PurposeShotConfig> = {
+    // EC Product — individual views are looked up from EC_VIEW_SHOTS
     ec: {
         shotType: 'full_body_front',
         outputPurpose: 'ec_product',
         label: 'EC Product',
         aspectLabel: '3:4',
     },
+    // Allow direct ec_view keys to fall through
+    ...EC_VIEW_SHOTS,
     instagram: {
         shotType: 'instagram_square',
         outputPurpose: 'instagram',

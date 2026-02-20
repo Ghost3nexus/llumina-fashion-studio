@@ -52,6 +52,8 @@ interface WorkflowPanelProps {
     onTogglePurpose: (p: string) => void;
     resolution: 'STD' | 'HD' | 'MAX';
     onResolutionChange: (r: 'STD' | 'HD' | 'MAX') => void;
+    ecViews: Set<string>;
+    onToggleEcView: (view: string) => void;
     // Generation
     onGenerate: () => void;
     canGenerate: boolean;
@@ -166,6 +168,8 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = (props) => {
                         onTogglePurpose={props.onTogglePurpose}
                         resolution={props.resolution}
                         onResolutionChange={props.onResolutionChange}
+                        ecViews={props.ecViews}
+                        onToggleEcView={props.onToggleEcView}
                     />
                 );
             default:

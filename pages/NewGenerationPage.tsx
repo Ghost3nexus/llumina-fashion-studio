@@ -15,6 +15,7 @@ import {
     buildSceneConfig,
     buildMannequinConfig,
     PURPOSE_SHOT_MAP,
+    EC_VIEW_SHOTS,
     resolveApiKey,
     validateApiKeyFormat,
     API_KEY_STORAGE,
@@ -64,6 +65,22 @@ const NewGenerationPage: React.FC = () => {
     // Edit state
     const [editingId, setEditingId] = useState<string | null>(null);
 
+    // EC multi-view state (default: front + back)
+    const [ecViews, setEcViews] = useState<Set<string>>(new Set(['ec_front', 'ec_back']));
+
+    const handleToggleEcView = useCallback((view: string) => {
+        setEcViews(prev => {
+            const next = new Set(prev);
+            if (next.has(view)) {
+                // prevent deselecting last remaining view
+                if (next.size > 1) next.delete(view);
+            } else {
+                next.add(view);
+            }
+            return next;
+        });
+    }, []);
+
     // Confirm HD state
     const [isConfirmingHD, setIsConfirmingHD] = useState(false);
 
@@ -105,7 +122,8 @@ const NewGenerationPage: React.FC = () => {
     }, []);
 
     const hasImages = Object.values(uploadedImages).some((v) => v !== null);
-    const canGenerate = hasImages && selectedPurposes.size > 0;
+    const ecValid = !selectedPurposes.has('ec') || ecViews.size > 0;
+    const canGenerate = hasImages && selectedPurposes.size > 0 && ecValid;
 
     const handleGeneratePreview = useCallback(async () => {
         if (!canGenerate) return;
@@ -135,12 +153,21 @@ const NewGenerationPage: React.FC = () => {
             // 3) 解析（服の特徴・カラー・素材を Gemini で分析）
             const analysis = await analyzeClothingItems(apiKey, validImages);
 
-            // 4) 用途（EC / Instagram / Ads）それぞれに対して generateFashionShot を並列実行
-            const purposeList = Array.from(selectedPurposes).slice(0, 3);
+            // 4) Build purpose list — expand EC into selected views
+            const purposeList: string[] = [];
+            for (const purpose of selectedPurposes) {
+                if (purpose === 'ec') {
+                    // Replace 'ec' with the individual selected view keys
+                    for (const view of ecViews) purposeList.push(view);
+                } else {
+                    purposeList.push(purpose);
+                }
+            }
 
             const results = await Promise.all(
                 purposeList.map(async (purpose) => {
-                    const shotCfg = PURPOSE_SHOT_MAP[purpose] ?? PURPOSE_SHOT_MAP['ec'];
+                    // Look up in EC_VIEW_SHOTS first, then PURPOSE_SHOT_MAP
+                    const shotCfg = EC_VIEW_SHOTS[purpose] ?? PURPOSE_SHOT_MAP[purpose] ?? PURPOSE_SHOT_MAP['ec'];
 
                     const lighting = buildLightingConfig(studioPreset);
                     const scene = buildSceneConfig(
@@ -431,6 +458,8 @@ const NewGenerationPage: React.FC = () => {
                         onTogglePurpose={handleTogglePurpose}
                         resolution={resolution}
                         onResolutionChange={setResolution}
+                        ecViews={ecViews}
+                        onToggleEcView={handleToggleEcView}
                         onGenerate={handleGeneratePreview}
                         canGenerate={canGenerate}
                         isGenerating={genStatus === 'generating'}
