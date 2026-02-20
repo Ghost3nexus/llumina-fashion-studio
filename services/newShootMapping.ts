@@ -89,8 +89,9 @@ export function buildSceneConfig(
 
     // Validate shotType
     const validShotTypes: ShotType[] = [
-        'full_body_front', 'full_body_back', 'bust_top', 'middle_top',
-        'bottom_focus', 'instagram_square', 'campaign_editorial',
+        'full_body_front', 'full_body_back', 'ec_side',
+        'bust_top', 'middle_top', 'bottom_focus',
+        'instagram_square', 'campaign_editorial',
         'full_body', 'upper_body', 'bust_up', 'lower_body',
     ];
     const safeShotType: ShotType = validShotTypes.includes(shotType as ShotType)
@@ -134,7 +135,7 @@ export const EC_VIEW_SHOTS: Record<string, PurposeShotConfig> = {
         icon: '△',
     },
     ec_side: {
-        shotType: 'full_body_front', // 3/4 turn via rotation in mannequin
+        shotType: 'ec_side',
         outputPurpose: 'ec_product',
         label: '横 Side / 3Q',
         aspectLabel: '3:4',

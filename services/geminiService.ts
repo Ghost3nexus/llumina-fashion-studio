@@ -1116,6 +1116,17 @@ export const generateFashionShot = async (
         Wider framing with architectural negative space.
         REFERENCE: Jil Sander campaign imagery — minimal but emotionally impactful.`,
 
+      // === EC multi-view additional shots ===
+      ec_side: `Three-quarter turn side view for silhouette and side-seam showcase.
+        CRITICAL FRAMING: Model rotated approximately 45 degrees from camera (three-quarter turn).
+        Face should be looking slightly back toward the camera — over-the-shoulder or subtle glance.
+        MUST SHOW: Side seams, garment profile, shoulder-to-hem silhouette, side pocket detail.
+        ARMS: Back arm visible along body line; front arm in relaxed natural position.
+        LEGS: Front leg slightly crossed over back, creating visual interest in body line.
+        FRAMING: Full body head-to-toe, same height as front/back shots for product page consistency.
+        BACKGROUND: Same neutral studio as front/back EC shots.
+        REFERENCE: NET-A-PORTER/SSENSE side-view product shots — silhouette documentation.`,
+
       // === レガシー互換 ===
       full_body: "Full body long shot, showing entire mannequin from head to toe, leaving headspace.",
       upper_body: "Medium close-up shot, framing from waist up, focus on torso and face.",
@@ -1125,10 +1136,16 @@ export const generateFashionShot = async (
       lower_body: "Medium shot framing from waist down, focus on pants/skirt and shoes."
     };
 
-    // Override view for back shots
-    const effectiveViewDesc = scene.shotType === 'full_body_back'
-      ? 'Direct back view, facing away from camera. Model rotated 180 degrees.'
-      : viewDesc;
+    // Override view for shot-type-specific camera directions
+    const shotTypeViewOverrides: Record<string, string> = {
+      full_body_back: 'Direct back view, facing COMPLETELY away from camera. Model rotated 180 degrees.',
+      ec_side: 'Three-quarter turn (3/4) — model rotated approximately 45 degrees, face looking slightly back toward camera. Side profile visible, garment silhouette and side seams clearly visible.',
+      bust_top: 'Close-up bust-top framing. Camera at chest level, looking slightly up toward face. Tight crop from mid-chest to top of head.',
+      bust_up: 'Close-up bust-up framing. Camera at chest level, tight crop from chest to top of head.',
+      bottom_focus: 'Lower body framing. Camera at waist level, looking down. Crop from waist to feet, shoes fully visible.',
+      middle_top: 'Torso-focused medium crop from chest to hip level.',
+    };
+    const effectiveViewDesc = shotTypeViewOverrides[scene.shotType] ?? viewDesc;
 
     const prompt = `
       TECHNICAL SPECIFICATION: 
@@ -1149,8 +1166,10 @@ export const generateFashionShot = async (
       ` : ''}
       ${images.model ? "CRITICAL: The subject MUST be the person shown in the REFERENCE MODEL image. Preserve their facial features, body type, and hair style exactly." : ""}
       A realistic ${mannequin.ageGroup} ${mannequin.ethnicity} ${mannequin.gender} model, ${mannequin.bodyType} build.
+      SKIN TONE: ${(mannequin as any).skinTone ?? 'fair'} — render skin texture, undertone, and luminosity consistent with this tone description.
+      HAIR: ${(mannequin as any).hairColor ?? 'black'} hair, ${(mannequin as any).hairLength ?? 'medium'} length. Hair must be styled to match these descriptors exactly.
       ${mannequin.height ? `Height: ${mannequin.height}cm.` : ''} ${mannequin.weight ? `Body Size/Weight: ${mannequin.weight}.` : ''}
-      Pose: ${posePrompts[mannequin.pose]}.
+      Pose: ${posePrompts[mannequin.pose] ?? posePrompts['ec_neutral']}.
 
       PRECISION FIT & SIZING (CRITICAL):
       ${garmentMeasurements ? `
@@ -1292,12 +1311,12 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
       - COLOR ACCURACY: Ensure the EXACT hex colors specified are preserved. Lighting should
         enhance texture visibility, NOT shift or wash out fabric colors.
 
-      ${scene.outputPurpose === 'ec_product' || scene.shotType === 'full_body_front' || scene.shotType === 'full_body_back' ? `
+      ${scene.outputPurpose === 'ec_product' || ['full_body_front', 'full_body_back', 'bust_top', 'bottom_focus'].includes(scene.shotType) ? `
       EC BACKGROUND DIRECTIVE:
       - Background MUST be solid, distraction-free, neutral tone.
       - Acceptable tones: Pure white (#FFFFFF), Warm off-white (#F5F0EB), Light grey (#E8E8E8).
       - NO props, NO environmental elements, NO dramatic shadows on background.
-      - Ground plane: minimal shadow footprint, consistent across front/back views.
+      - Ground plane: minimal shadow footprint, consistent across all EC views.
       - STANDARD: SSENSE, NET-A-PORTER, Mr Porter product imagery quality.
       ` : ''}
 

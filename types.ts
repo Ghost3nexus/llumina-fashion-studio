@@ -60,6 +60,7 @@ export type ShotType =
   // EC必須ショット
   | 'full_body_front'       // 全身正面（EC必須）
   | 'full_body_back'        // 全身背面（EC必須）
+  | 'ec_side'              // EC横・3/4ターン（追加）
   // 商品フォーカスショット
   | 'bust_top'              // バストトップ（肩〜胸上クロップ）
   | 'middle_top'            // ミドルトップ（胸〜ウエスト）
