@@ -1,23 +1,8 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { LightingConfig, MannequinConfig, VisionAnalysis, SceneConfig, DetailedGarmentMeasurements, DetailedAccessoryMeasurements, DetailedAccessoryPositioning, DetailedAccessoryMaterials, RefinementRequest, RefinementInterpretation, RefinementTarget, RefinementChangeType, ShotType, OutputPurpose, PoseType } from "../types";
+import { LightingConfig, MannequinConfig, VisionAnalysis, SceneConfig, DetailedGarmentMeasurements, DetailedAccessoryMeasurements, DetailedAccessoryPositioning, DetailedAccessoryMaterials, RefinementRequest, RefinementInterpretation, RefinementTarget, RefinementChangeType, ShotType, PoseType } from "../types";
 
-/**
- * Dynamically determine aspect ratio based on shot type and output purpose.
- * EC product shots use 3:4, Instagram uses 1:1, campaign uses 16:9, detail crops use 4:5.
- */
-function getAspectRatioForShot(shotType: ShotType, purpose?: OutputPurpose): string {
-  // Instagram用
-  if (purpose === 'instagram' || shotType === 'instagram_square') return '1:1';
-  // キャンペーン広告
-  if (purpose === 'campaign' || shotType === 'campaign_editorial') return '16:9';
-  // EC用 フルボディ/背面は3:4が業界標準
-  if (shotType.startsWith('full_body')) return '3:4';
-  // ディテールショットは4:5（Instagramフィード互換）
-  if (['bust_top', 'middle_top', 'bottom_focus'].includes(shotType)) return '4:5';
-  // デフォルト
-  return '3:4';
-}
+
 const parseBase64 = (b64: string) => {
   if (b64.includes(",")) {
     const [header, data] = b64.split(",");
