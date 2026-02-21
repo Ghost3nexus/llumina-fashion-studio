@@ -1590,19 +1590,84 @@ export const SNS_STYLES: SnsStyleDef[] = [
     label: 'AI Surreal',
     labelJa: 'AI 超現実',
     icon: '🌀',
-    prompt: `STYLE TRANSFORM: AI Surreal — Impossible Reality Only AI Can Create.
-      Re-create the model and outfit in a HYPER-SURREAL environment that defies physics.
-      ENVIRONMENT: Choose one — floating geometric platforms in endless sky, liquid chrome ocean,
-        infinite mirror labyrinth, bioluminescent crystal cave, anti-gravity room with floating furniture,
-        or holographic data stream cascade.
-      PHYSICS: Objects float, gravity is optional. Fabric may defy gravity — flowing upward or suspended.
-      LIGHTING: Otherworldly — bioluminescent glow, holographic prismatic light, or impossible dual-sun.
-      COLOR: Saturated, dreamlike palette. Deep purples, electric cyans, molten golds, plasma pinks.
-      ATMOSPHERE: Visible particles — floating dust motes, light prisms, digital artifacts, energy fields.
-      MODEL: Same person, same outfit, but they exist naturally in this impossible space.
-      QUALITY: Hyper-detailed, 8K rendering, photorealistic model in surreal environment.
-      FEEL: Fashion editorial meets Beeple / Refik Anadol digital art.
-      This image should be IMPOSSIBLE in real life — that's the point.`,
+    prompt: `STYLE TRANSFORM: AI Surreal — Fashion Surrealism Only AI Can Create.
+
+      CRITICAL QUALITY REQUIREMENT:
+      This must look like HYPERREALISTIC PHOTOGRAPHY — NOT digital art, NOT CGI render, NOT sci-fi illustration.
+      The surrealism comes from IMPOSSIBLE SITUATIONS photographed with extreme photographic realism.
+      Shot on Hasselblad H6D-400c medium format camera. Photojournalistic quality — as if this actually happened.
+
+      SELECT ONE of these five surrealist approaches and execute it with EXTREME conviction:
+
+      APPROACH 1 — IMPOSSIBLE LOCATION CLASH:
+      The model poses in a completely incongruous, impossible setting for a fashion shoot.
+      Examples: A Balenciaga-style runway inside a working courtroom with judge and audience,
+        a fashion editorial in a working coal mine with miners watching,
+        a high-fashion pose on the wing of a commercial jet mid-flight,
+        a luxury lookbook shoot inside a NASA rocket launch control room.
+      The environment is 100% realistic and detailed. The fashion is the only "impossible" element.
+      Reaction of bystanders: stunned, curious, photographing with phones.
+
+      APPROACH 2 — SCALE DISTORTION (Alice in Wonderland):
+      The model is dramatically WRONG SIZE relative to the environment.
+      Option A: GIANT — model is 8-10 meters tall, crouching inside a normal-sized elegant room,
+        head touching ceiling, furniture tiny around feet, people tiny as mice.
+        Reference: Alice in Wonderland "drink me" giant scene. Shot from floor level looking up.
+      Option B: MINIATURE — model is 10cm tall, standing on a dinner table between wine glasses,
+        or in a shoebox-sized bedroom with giant everyday objects as furniture.
+      The scale difference must be EXTREME and immediately obvious.
+      Everything else is photographically real — no fantasy lighting.
+
+      APPROACH 3 — GIANT CREATURE COMPANION:
+      A biologically accurate, GIANT version of an insect or animal stands next to the model.
+      Creature options: Praying mantis (3 meters tall) — standing beside model, looking down.
+        Giant swallowtail butterfly (2m wingspan) — perched on model's shoulder.
+        Giant white stag (4 meters tall) — model stands at its knee level.
+        Giant crow (model-sized) — staring directly at camera beside the model.
+      The creature is PHOTOREALISTIC, not fantastical. Shot on white salt flats or empty road.
+      Reference: The giant praying mantis + model on salt flats image (hyperrealistic AI fashion).
+      Creature and model exist together naturally, no fear, calm atmosphere.
+
+      APPROACH 4 — TIM WALKER MAXIMALIST NATURE:
+      The model is completely engulfed in an impossibly lush, over-abundant natural environment.
+      The frame is 90% filled with: exotic birds (parrots, toucans, flamingos) perching on model's arms,
+        giant baroque flower arrangements exploding from floor to ceiling,
+        tropical plants with leaves larger than the model,
+        or hundreds of butterflies covering every surface.
+      Reference: Gucci editorial with birds in lush greenery. Tim Walker flower explosion shoots.
+      Studio setting with teal/emerald/botanical green background.
+      Everything is jewel-toned, saturated, alive with color and texture.
+      The fashion is visible but partially framed by the natural abundance.
+
+      APPROACH 5 — OBJECT SURREALISM (CONTAINMENT & MULTIPLICATION):
+      The model interacts with physical objects in an impossible, editorial way.
+
+      Option A — MIRROR FRAGMENTATION:
+      The model stands in a white studio space completely surrounded by 15-25 ornate antique gold-framed mirrors
+        at wildly different angles — some leaning, some floating, some shattered mid-air.
+      Each mirror reflects the model from a different angle simultaneously, creating infinite fragmented views.
+      The mirrors have CRACKED and BROKEN glass with spider-web fracture patterns.
+      Some mirrors are on the floor, some leaning against walls, some suspended.
+      Reference: High-fashion editorial with broken gold-framed mirrors surrounding a model in white space.
+      Atmosphere: mysterious, kaleidoscopic, slightly dangerous.
+
+      Option B — GLASS BOX CONTAINMENT:
+      The model is sealed inside a large transparent acrylic or glass rectangular box (phone booth sized).
+      The box is filling with a physical substance — choose one:
+        ICE CUBES: dozens of large ice cubes filling the box, model pressing hands against glass,
+        WATER: waist-deep water, fabric floating around model's body,
+        FLOWER PETALS: thousands of red or white petals burying the model to the chest,
+        CONFETTI: golden confetti falling around model in the sealed box.
+      The box exterior is crystal-clear. You can see sharp detail of model's outfit through the glass.
+      Background: soft pink, sage green, or dove grey studio backdrop. Clean, minimal.
+      Reference: Fashion editorial with model inside large acrylic box filled with ice cubes, pink background.
+      Expression: calm, composed — not panicked. The entrapment is aesthetic.
+
+      The impossible element is rendered with photographic hyper-detail.
+
+      LIGHTING: Natural or studio — NO fantasy/sci-fi lighting. Soft directional natural light.
+      QUALITY: Medium format film quality. Extreme detail in fabrics, textures, faces.
+      The image must be IMMEDIATELY shareable on Instagram with a jaw-drop reaction.`,
   },
   {
     key: 'pixel_8bit',
