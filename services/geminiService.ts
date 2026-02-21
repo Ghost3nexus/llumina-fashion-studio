@@ -1108,13 +1108,53 @@ export const generateFashionShot = async (
         Visual story-telling priority over pure product documentation.
         REFERENCE: Miu Miu Instagram — dynamic poses, personality, fashion-forward cropping.`,
 
-      campaign_editorial: `Wide cinematic campaign shot with dramatic composition.
-        DRAMATIC: Use cinematic lighting, deeper shadows, stronger contrast color grading.
-        Model pose should be expressive, narrative, and aspirational.
-        Background can be textured or environmental for storytelling.
-        This shot is for brand storytelling — convey mood, lifestyle, and aspiration.
-        Wider framing with architectural negative space.
-        REFERENCE: Jil Sander campaign imagery — minimal but emotionally impactful.`,
+      campaign_editorial: `FASHION CAMPAIGN IMAGE — brand-level advertising quality, NOT an EC product shot.
+        This is a campaign photograph defined by strong visual identity and emotional narrative.
+
+        FRAMING & COMPOSITION (CRITICAL):
+        Cinematic 16:9 widescreen with aggressive rule-of-thirds — subject is NOT centered.
+        Generous architectural negative space: at least 40% of frame as intentional empty space.
+        Camera angle: 35mm lens feel, shot from slightly below eye level (5-10 degrees) for authority.
+        Shallow depth of field: f/1.8-f/2.8 equivalent — background environment softly blurred but
+        still recognizable with texture. Leading lines (architecture, shadows, light rays) pull
+        the eye toward the model. Avoid symmetric, balanced, or product-catalog framing entirely.
+
+        MODEL DIRECTION (CRITICAL — NOT an EC display pose):
+        Expression: Intense, self-possessed, introspective. Absolutely NO smiling.
+        Deadpan or emotionally charged gaze — looking at camera or deliberately off-frame.
+        Body language: commanding, grounded, or dynamically mid-motion. Never a "display" stance.
+        References: Prada Meisel portraiture, Celine Slimane portraits, Zara FW2024 angular looks.
+        Feel: a "stolen moment" — authentic and uncontrived, as if caught mid-thought or mid-step.
+
+        LIGHTING (CRITICAL — campaign lighting is fundamentally different from EC studio):
+        ONE strong directional key light — hard-edged or large but directional, NOT a flat softbox.
+        Contrast ratio 1:4 to 1:6 — subject partially illuminated, surroundings dramatically underlit.
+        Deep intentional shadows on face and body are COMPOSITIONAL elements, not mistakes to fix.
+        Shadow shapes on background wall or floor contribute to the image's graphic quality.
+        Color temperature: 4500-5200K, slightly cool and desaturated for timeless campaign quality.
+        ABSOLUTELY NO: ring light, flat softbox fill, pure white background, shadow elimination.
+        Reference lighting: Peter Lindbergh (textural light + shadow), Meisel (graphic contrast).
+
+        ENVIRONMENT & BACKGROUND (CRITICAL — white studio is FORBIDDEN):
+        The background MUST have visual texture, depth, and tonal richness.
+        Options: raw concrete or plaster wall, dramatic architectural interior (columns, arches),
+        moody exterior (rain-wet urban street, coastal cliffs, grand staircase, abandoned space),
+        or richly textured gradient shadow environment.
+        Background tone must create contrast with garment color — dark on light, or vice versa.
+        Environmental elements (shadows, reflections, light shafts) add narrative depth.
+        Reference: Celine Nice locations, Prada warehouse/stage sets, Zara urban billboard aesthetic.
+
+        COLOR GRADING (CRITICAL — this is what makes it a campaign, not a product shot):
+        Film-grade palette: desaturated overall, lifted blacks, slightly crushed highlights.
+        NOT vibrant digital color — muted, tonal, aged-film quality.
+        Skin tones: warm golden highlight with cool blue-grey shadow split toning.
+        Color cast: slight cyan or amber tint in shadows depending on brand mood.
+        Grain: fine film grain visible (ISO 800-1600 equivalent), adds texture and authenticity.
+        Subtle lens vignette (darkened corners, natural and not heavy).
+        Reference: Kodak Vision 3 film stock emulation. Peter Lindbergh B&W or warm-toned prints.
+
+        REFERENCE CAMPAIGNS: Prada "Motion Pictures" FW2025, Zara × Meisel FW2024 black-and-white
+        studio portraits, Celine Hedi Slimane SS2025 Nice location, Miu Miu SS2025 precision+spontaneity.`,
 
       // === EC multi-view additional shots ===
       ec_side: `Three-quarter turn side view for silhouette and side-seam showcase.
@@ -1359,7 +1399,20 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
       ${scene.customPrompt}
       ` : ''}
       POST-PROCESSING:
-      ${scene.shotType === 'campaign_editorial' ? 'Cinematic color grading, rich contrast, deep shadows, aspirational mood.' : scene.shotType === 'instagram_square' ? 'Warm editorial color grading, slightly lifted shadows, social-media-optimized vibrancy.' : 'Clean commercial color grading, neutral white balance, razor-sharp focus on the outfit.'}
+      ${scene.shotType === 'campaign_editorial'
+        ? `FILM-GRADE CAMPAIGN POST-PROCESSING:
+        Kodak Vision 3 500T cinema film stock emulation — organic, textural, timeless.
+        Color: Desaturated palette, lifted blacks (not pure black), crushed highlights.
+        Split toning: warm amber/golden highlights, cool cyan-blue shadows.
+        Grain: Fine ISO 1600-equivalent film grain — visible but refined, adds tactile quality.
+        Vignette: Subtle lens vignette, natural falloff at frame corners.
+        Contrast: High tonal contrast with rich midtone depth.
+        Sharpness: Slightly soft — NOT digitally over-sharpened. Organic lens rendering.
+        Reference: Peter Lindbergh editorial, Steven Meisel campaign, Helmut Newton drama.
+        This image should look like a 35mm or large-format campaign photograph, NOT a digital product shot.`
+        : scene.shotType === 'instagram_square'
+          ? 'Warm editorial color grading, slightly lifted shadows, social-media-optimized vibrancy.'
+          : 'Clean commercial color grading, neutral white balance, razor-sharp focus on the outfit.'}
       8K resolution, photorealistic rendering.
       KEYWORDS: ${analysis.keywords.join(", ")}, ray-traced reflections, photorealistic clothing, luxury e-commerce.
     `;

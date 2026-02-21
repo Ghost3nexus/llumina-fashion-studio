@@ -208,12 +208,24 @@ const NewGenerationPage: React.FC = () => {
                         focalLength,
                         shotCfg.outputPurpose
                     );
+                    // Campaign/Instagram: override pose to prevent EC display poses
+                    const effectivePose = (() => {
+                        if (shotCfg.outputPurpose === 'campaign') {
+                            // Force editorial pose — EC neutral/relaxed looks wrong in campaigns
+                            return pose.startsWith('editorial') ? pose : 'editorial_power';
+                        }
+                        if (shotCfg.outputPurpose === 'instagram') {
+                            // Instagram prefers lifestyle poses
+                            return pose.startsWith('lifestyle') ? pose : 'lifestyle_candid';
+                        }
+                        return pose;
+                    })();
                     const mannequin = buildMannequinConfig(
                         gender,
                         ageRange,
                         bodyType,
                         vibe,
-                        pose,
+                        effectivePose,
                         studioPreset,
                         ethnicity,
                         skinTone,
