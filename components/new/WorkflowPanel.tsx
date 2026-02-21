@@ -57,6 +57,9 @@ interface WorkflowPanelProps {
     onResolutionChange: (r: 'STD' | 'HD' | 'MAX') => void;
     ecViews: Set<string>;
     onToggleEcView: (view: string) => void;
+    // Campaign style reference
+    campaignRefImage: string | null;
+    onCampaignRefImageChange: (b64: string | null) => void;
     // Generation
     onGenerate: () => void;
     canGenerate: boolean;
@@ -176,6 +179,8 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = (props) => {
                         onResolutionChange={props.onResolutionChange}
                         ecViews={props.ecViews}
                         onToggleEcView={props.onToggleEcView}
+                        campaignRefImage={props.campaignRefImage}
+                        onCampaignRefImageChange={props.onCampaignRefImageChange}
                     />
                 );
             default:

@@ -1413,6 +1413,18 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
         : scene.shotType === 'instagram_square'
           ? 'Warm editorial color grading, slightly lifted shadows, social-media-optimized vibrancy.'
           : 'Clean commercial color grading, neutral white balance, razor-sharp focus on the outfit.'}
+      ${images['campaign_style_ref'] && scene.shotType === 'campaign_editorial' ? `
+      STYLE REFERENCE IMAGE (CRITICAL — THIS IS THE VISUAL TARGET):
+      The image labeled "STYLE_REFERENCE_IMAGE" represents the target visual style for this campaign shot.
+      Study it carefully and EMULATE the following aspects:
+      - LIGHTING: Replicate the direction, quality, and intensity of light in that image
+      - COMPOSITION: Match the framing, negative space usage, and subject placement
+      - COLOR GRADING: Apply the same color palette, tonal range, and mood
+      - ATMOSPHERE: Capture the same emotional tone and narrative feeling
+      - BACKGROUND: Use a similar type of environment/background if recognizable
+      This style reference overrides the generic campaign prompt above where they conflict.
+      The garments must still be those from the REFERENCE TOPS/BOTTOMS images, NOT from the style reference.
+      `  : ''}
       8K resolution, photorealistic rendering.
       KEYWORDS: ${analysis.keywords.join(", ")}, ray-traced reflections, photorealistic clothing, luxury e-commerce.
     `;
@@ -1427,7 +1439,13 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
       const validRef = await ensureSupportedFormat(b64);
       const { mimeType, data } = parseBase64(validRef);
 
-      if (key.includes('_alt_')) {
+      if (key === 'campaign_style_ref') {
+        // Campaign style reference — labeled separately with specific instruction
+        imageParts.push({
+          text: `STYLE_REFERENCE_IMAGE (VISUAL STYLE TARGET — NOT THE GARMENT):
+          Emulate the mood, lighting direction, composition, color grading, and atmosphere of this image.
+          Do NOT copy the clothing or model appearance from this image — only emulate its visual style.` });
+      } else if (key.includes('_alt_')) {
         // Alt angle image — label with base item + angle context
         const baseKey = key.split('_alt_')[0];
         const idx = altCounters[baseKey] ?? 0;

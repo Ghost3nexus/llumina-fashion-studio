@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 interface OutputStepProps {
     selectedPurposes: Set<string>;
@@ -7,6 +7,9 @@ interface OutputStepProps {
     onResolutionChange: (r: 'STD' | 'HD' | 'MAX') => void;
     ecViews: Set<string>;
     onToggleEcView: (view: string) => void;
+    // Campaign style reference image
+    campaignRefImage: string | null;
+    onCampaignRefImageChange: (b64: string | null) => void;
 }
 
 const EC_VIEWS = [
@@ -15,23 +18,6 @@ const EC_VIEWS = [
     { key: 'ec_side', label: '横 Side / 3Q', icon: '◧', desc: '3/4ターン横向き' },
     { key: 'ec_top', label: 'バストアップ', icon: '🔼', desc: '上半身クローズアップ' },
     { key: 'ec_bottom', label: 'ボトム詳細', icon: '🔽', desc: '下半身・足元の詳細' },
-];
-
-const OUTPUT_PURPOSES = [
-    {
-        key: 'instagram',
-        label: 'Instagram',
-        description: 'Square crop, vibrant colors, social media ready.',
-        aspectRatio: '1:1',
-        icon: '📱',
-    },
-    {
-        key: 'ads',
-        label: 'Ads / Campaign',
-        description: 'Wide format, cinematic quality for advertising.',
-        aspectRatio: '16:9',
-        icon: '📺',
-    },
 ];
 
 const RESOLUTIONS: { value: 'STD' | 'HD' | 'MAX'; label: string; detail: string }[] = [
@@ -47,14 +33,32 @@ export const OutputStep: React.FC<OutputStepProps> = ({
     onResolutionChange,
     ecViews,
     onToggleEcView,
+    campaignRefImage,
+    onCampaignRefImageChange,
 }) => {
     const [ecExpanded, setEcExpanded] = useState(true);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     const isEcSelected = selectedPurposes.has('ec');
+    const isAdsSelected = selectedPurposes.has('ads');
+    const isIgSelected = selectedPurposes.has('instagram');
     const selectedViewCount = ecViews.size;
 
-    // Total output count: ec views + other purposes
     const totalOutputs = (isEcSelected ? selectedViewCount : 0)
-        + Array.from(selectedPurposes).filter(p => p !== 'ec').length;
+        + (isIgSelected ? 1 : 0)
+        + (isAdsSelected ? 1 : 0);
+
+    const handleRefImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') onCampaignRefImageChange(reader.result);
+        };
+        reader.readAsDataURL(file);
+        // Reset input so same file can be re-selected
+        e.target.value = '';
+    };
 
     return (
         <div className="space-y-4">
@@ -152,39 +156,114 @@ export const OutputStep: React.FC<OutputStepProps> = ({
                 )}
             </div>
 
-            {/* ── Instagram / Ads ───────────────────────────────────────── */}
-            <div className="space-y-2">
-                {OUTPUT_PURPOSES.map((op) => {
-                    const isSelected = selectedPurposes.has(op.key);
-                    return (
-                        <button
-                            key={op.key}
-                            onClick={() => onTogglePurpose(op.key)}
-                            className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200
-                                ${isSelected
-                                    ? 'border-violet-500/60 bg-violet-500/10'
-                                    : 'border-zinc-700/50 bg-zinc-800/30 hover:bg-zinc-800/50 hover:border-zinc-600'
-                                }`}
-                        >
-                            <div className="flex items-center gap-3">
-                                <span className="text-xl w-8 text-center flex-shrink-0">{op.icon}</span>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-white">{op.label}</span>
-                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400">
-                                            {op.aspectRatio}
-                                        </span>
-                                    </div>
-                                    <div className="text-[10px] text-zinc-400 mt-0.5">{op.description}</div>
-                                </div>
-                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all
-                                    ${isSelected ? 'bg-violet-500 border-violet-500 text-white' : 'border-zinc-600 text-transparent'}`}>
-                                    {isSelected && <span className="text-[10px]">✓</span>}
+            {/* ── Instagram ─────────────────────────────────────────────── */}
+            <button
+                onClick={() => onTogglePurpose('instagram')}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200
+                    ${isIgSelected
+                        ? 'border-violet-500/60 bg-violet-500/10'
+                        : 'border-zinc-700/50 bg-zinc-800/30 hover:bg-zinc-800/50 hover:border-zinc-600'
+                    }`}
+            >
+                <div className="flex items-center gap-3">
+                    <span className="text-xl w-8 text-center flex-shrink-0">📱</span>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-white">Instagram</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400">1:1</span>
+                        </div>
+                        <div className="text-[10px] text-zinc-400 mt-0.5">Square crop, vibrant colors, social media ready.</div>
+                    </div>
+                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all
+                        ${isIgSelected ? 'bg-violet-500 border-violet-500 text-white' : 'border-zinc-600 text-transparent'}`}>
+                        {isIgSelected && <span className="text-[10px]">✓</span>}
+                    </div>
+                </div>
+            </button>
+
+            {/* ── Ads / Campaign (expandable with style ref upload) ─────── */}
+            <div className={`rounded-xl border transition-all duration-200 overflow-hidden
+                ${isAdsSelected ? 'border-violet-500/60 bg-violet-500/10' : 'border-zinc-700/50 bg-zinc-800/30'}`}>
+
+                {/* Header row */}
+                <div
+                    className="flex items-center gap-3 p-3.5 cursor-pointer"
+                    onClick={() => onTogglePurpose('ads')}
+                >
+                    <span className="text-xl w-8 text-center flex-shrink-0">📺</span>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-white">Ads / Campaign</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400">16:9</span>
+                            {campaignRefImage && isAdsSelected && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300">
+                                    Ref image set
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 mt-0.5">Wide format, cinematic quality for advertising.</div>
+                    </div>
+                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all
+                        ${isAdsSelected ? 'bg-violet-500 border-violet-500 text-white' : 'border-zinc-600 text-transparent'}`}>
+                        {isAdsSelected && <span className="text-[10px]">✓</span>}
+                    </div>
+                </div>
+
+                {/* Style reference upload (shown when ads selected) */}
+                {isAdsSelected && (
+                    <div className="px-3.5 pb-3.5 border-t border-zinc-700/40 pt-3">
+                        <p className="text-[9px] text-amber-300/80 uppercase tracking-wider mb-2 font-semibold">
+                            Style Reference (optional)
+                        </p>
+                        <p className="text-[10px] text-zinc-500 mb-2.5 leading-relaxed">
+                            参考にしたいキャンペーン画像をアップロード。ライティング・構図・色調を模倣して生成します。
+                        </p>
+
+                        {campaignRefImage ? (
+                            /* Preview + clear */
+                            <div className="relative rounded-lg overflow-hidden border border-amber-500/30 bg-zinc-800/50">
+                                <img
+                                    src={campaignRefImage}
+                                    alt="Campaign style reference"
+                                    className="w-full h-28 object-cover"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                                <div className="absolute bottom-0 left-0 right-0 p-2 flex items-center justify-between">
+                                    <span className="text-[9px] text-amber-300 font-semibold">Style Ref Active</span>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onCampaignRefImageChange(null); }}
+                                        className="text-[10px] px-2 py-0.5 rounded bg-zinc-900/80 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+                                    >
+                                        × Remove
+                                    </button>
                                 </div>
                             </div>
-                        </button>
-                    );
-                })}
+                        ) : (
+                            /* Upload slot */
+                            <button
+                                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                                className="w-full h-20 rounded-lg border border-dashed border-zinc-600 bg-zinc-800/30
+                                    hover:border-amber-500/50 hover:bg-amber-500/5 transition-all
+                                    flex flex-col items-center justify-center gap-1.5 text-zinc-500 hover:text-zinc-300"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                <span className="text-[10px]">参考キャンペーン画像をアップロード</span>
+                                <span className="text-[9px] text-zinc-600">JPG / PNG / WEBP</span>
+                            </button>
+                        )}
+
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleRefImageChange}
+                        />
+                    </div>
+                )}
             </div>
 
             {/* ── Resolution ───────────────────────────────────────────── */}
@@ -224,15 +303,21 @@ export const OutputStep: React.FC<OutputStepProps> = ({
                                 </div>
                             ) : null;
                         })}
-                        {Array.from(selectedPurposes).filter(p => p !== 'ec').map((key) => {
-                            const op = OUTPUT_PURPOSES.find(o => o.key === key);
-                            return op ? (
-                                <div key={key} className="flex items-center justify-between text-[11px]">
-                                    <span className="text-zinc-300">{op.icon} {op.label}</span>
-                                    <span className="text-zinc-500">{op.aspectRatio} · {resolution}</span>
-                                </div>
-                            ) : null;
-                        })}
+                        {isIgSelected && (
+                            <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-zinc-300">📱 Instagram</span>
+                                <span className="text-zinc-500">1:1 · {resolution}</span>
+                            </div>
+                        )}
+                        {isAdsSelected && (
+                            <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-zinc-300">
+                                    📺 Ads / Campaign
+                                    {campaignRefImage && <span className="text-amber-400 ml-1">+ style ref</span>}
+                                </span>
+                                <span className="text-zinc-500">16:9 · {resolution}</span>
+                            </div>
+                        )}
                     </div>
                     <div className="text-[10px] text-violet-400/80 mt-2 pt-2 border-t border-zinc-700/30">
                         {totalOutputs} output{totalOutputs !== 1 ? 's' : ''} will be generated

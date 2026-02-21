@@ -68,6 +68,12 @@ const NewGenerationPage: React.FC = () => {
     // EC multi-view state (default: front + back)
     const [ecViews, setEcViews] = useState<Set<string>>(new Set(['ec_front', 'ec_back']));
 
+    // Campaign style reference image
+    const [campaignRefImage, setCampaignRefImage] = useState<string | null>(null);
+    const handleCampaignRefImageChange = useCallback((b64: string | null) => {
+        setCampaignRefImage(b64);
+    }, []);
+
     const handleToggleEcView = useCallback((view: string) => {
         setEcViews(prev => {
             const next = new Set(prev);
@@ -181,6 +187,8 @@ const NewGenerationPage: React.FC = () => {
                     if (b64) validImages[`${itemKey}_alt_${i}`] = b64;
                 });
             }
+            // Campaign style reference
+            if (campaignRefImage) validImages['campaign_style_ref'] = campaignRefImage;
 
             // 3) 解析（服の特徴・カラー・素材を Gemini で分析）
             const analysis = await analyzeClothingItems(apiKey, validImages);
@@ -513,6 +521,8 @@ const NewGenerationPage: React.FC = () => {
                         onResolutionChange={setResolution}
                         ecViews={ecViews}
                         onToggleEcView={handleToggleEcView}
+                        campaignRefImage={campaignRefImage}
+                        onCampaignRefImageChange={handleCampaignRefImageChange}
                         onGenerate={handleGeneratePreview}
                         canGenerate={canGenerate}
                         isGenerating={genStatus === 'generating'}
