@@ -1,5 +1,5 @@
 
-import React from 'react';
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import NewGenerationPage from './pages/NewGenerationPage';
 import { AuthProvider } from './components/auth/AuthContext';
