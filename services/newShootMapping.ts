@@ -211,6 +211,8 @@ const VIBE_MAP: Record<string, Vibe> = {
 const POSE_MAP: Record<string, PoseType> = {
     ec_neutral: 'ec_neutral',
     ec_relaxed: 'ec_relaxed',
+    ec_direct: 'ec_direct' as PoseType,     // NEW: strict catalog upright (Uniqlo-style)
+    ec_walk: 'ec_walk' as PoseType,          // NEW: natural walking stride (Zara-style)
     dynamic: 'ec_three_quarter',
     '3/4_turn': 'ec_three_quarter',
     editorial_power: 'editorial_power',
@@ -222,6 +224,7 @@ const POSE_MAP: Record<string, PoseType> = {
     instagram: 'lifestyle_candid',
     campaign: 'editorial_power',
 };
+
 
 export function buildMannequinConfig(
     gender: string,

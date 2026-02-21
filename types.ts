@@ -77,6 +77,36 @@ export type ShotType =
 // 出力目的
 export type OutputPurpose = 'ec_product' | 'instagram' | 'campaign' | 'lookbook';
 
+// ─── EC Hero Product & Sizing Context ────────────────────────────────────────
+// Captures user-specified sizing/material info per garment, plus which garment
+// is the "hero" (main product being sold on this EC page).
+
+export interface GarmentSpec {
+  // 寸法 (cm) — pants/skirt用
+  length?: number;        // 総丈 (pants/tops)
+  rise?: number;          // 股上 (ハイ/ミド/ロー判定)
+  thighWidth?: number;    // 渡り幅 (ワイドレッグ判定)
+  inseam?: number;        // 股下丈
+  shoulderWidth?: number; // 肩幅 (tops/outer)
+  // 素材
+  material?: string;      // 自由入力: "ウール" "ポプリン" "デニム" etc.
+  waistStyle?: string;    // "ゴム" "インタック" "スラックス型" etc.
+}
+
+export interface GarmentContext {
+  heroProduct: string | null;                      // 'tops' | 'pants' | 'outer' | 'inner' | 'shoes' | null
+  specs: Record<string, GarmentSpec>;              // itemKey → spec
+}
+
+// ─── Stage 1: CASTING — Model Body Specification ─────────────────────────────
+export interface ModelBodySpec {
+  height?: number;         // 身長 cm (e.g. 172)
+  bust?: number;           // バスト cm
+  waist?: number;          // ウエスト cm
+  hip?: number;            // ヒップ cm
+  weight?: string;         // 体重 (e.g. "53kg" or "slim")
+}
+
 export interface OutputConfig {
   purpose: OutputPurpose;
   aspectRatio: '3:4' | '1:1' | '4:5' | '16:9' | '9:16';
@@ -95,7 +125,11 @@ export interface MannequinConfig {
   editorialStyle: EditorialStyle;
   height?: number; // cm
   weight?: string; // e.g. "55kg" or "Slim"
+  skinTone?: string;    // 'fair' | 'light' | 'medium' | 'tan' | 'deep'
+  hairColor?: string;   // 'black' | 'dark_brown' | 'brown' | 'blonde' etc.
+  hairLength?: string;  // 'short' | 'bob' | 'medium' | 'long' | 'extra_long'
 }
+
 
 export interface ItemMeasurements {
   shoulderWidth?: number; // cm
@@ -290,6 +324,32 @@ export interface VisionAnalysis {
   accessories?: ItemAnalysis;
   overallStyle: string;
   keywords: string[];
+  layeringState?: LayeringAnalysis;  // ← 着こなし状態（新規追加）
+}
+
+/**
+ * LayeringAnalysis — 複数アイテムの「着こなし状態」を記述
+ * 各ショット（Front/Back/Side）で一貫して同じ状態を再現するための構造体
+ */
+export interface LayeringAnalysis {
+  /** OUTER（アウター）の開閉状態 */
+  outerOpenState?: 'fully_open' | 'partially_open' | 'closed' | 'belted' | 'buttoned';
+  /** アウターのボタン留め状態の詳細 */
+  outerButtonState?: string; // e.g. "top 2 buttons open, bottom 4 closed"
+  /** TOP（シャツ/ブラウス）のタック状態 */
+  topTuckState?: 'fully_tucked' | 'partially_tucked' | 'untucked' | 'half_tucked_front';
+  /** インナーがアウターからどれだけ見えているか */
+  innerVisibility?: 'hidden_under_outer' | 'collar_only' | 'collar_and_chest' | 'partially_visible' | 'fully_visible';
+  /** インナーの裾がアウターの下から見えているか */
+  innerHemVisible?: boolean;
+  /** インナーの裾の出し方 */
+  innerHemDescription?: string; // e.g. "shirt hem stays inside coat — NOT visible below coat hem"
+  /** 袖のカフ状態 */
+  sleeveCuffState?: 'straight' | 'rolled_once' | 'rolled_twice' | 'folded_cuff_visible';
+  /** アウターのベルトの状態（ある場合） */
+  beltState?: 'tied_front' | 'tied_back' | 'untied_hanging' | 'tucked_in_loops' | 'none';
+  /** 全体の着こなしの自由テキスト記述 */
+  stylingDescription: string;
 }
 
 export type ClothingType = 'tops' | 'pants' | 'outer' | 'inner' | 'shoes' | 'bag' | 'sunglasses' | 'glasses' | 'accessories' | 'model';

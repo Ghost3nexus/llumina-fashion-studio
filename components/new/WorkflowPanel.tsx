@@ -6,6 +6,7 @@ import { StudioStep } from './steps/StudioStep';
 import { ModelStep } from './steps/ModelStep';
 import { OutputStep } from './steps/OutputStep';
 import { BrandProfile } from '../../services/luminaApi';
+import type { GarmentSpec } from '../../types';
 
 interface WorkflowPanelProps {
     // Input
@@ -60,6 +61,11 @@ interface WorkflowPanelProps {
     // Campaign style reference
     campaignRefImage: string | null;
     onCampaignRefImageChange: (b64: string | null) => void;
+    // Hero product & sizing
+    heroProduct: string | null;
+    onHeroProductChange: (itemKey: string | null) => void;
+    garmentSpecs: Record<string, GarmentSpec>;
+    onGarmentSpecChange: (itemKey: string, spec: GarmentSpec) => void;
     // Generation
     onGenerate: () => void;
     canGenerate: boolean;
@@ -121,6 +127,10 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = (props) => {
                         altImages={props.altImages}
                         onAltImageUpload={props.onAltImageUpload}
                         onAltImageClear={props.onAltImageClear}
+                        heroProduct={props.heroProduct}
+                        onHeroProductChange={props.onHeroProductChange}
+                        garmentSpecs={props.garmentSpecs}
+                        onGarmentSpecChange={props.onGarmentSpecChange}
                     />
                 );
             case 1:

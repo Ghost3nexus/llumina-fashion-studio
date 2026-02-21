@@ -21,6 +21,8 @@ import {
     validateApiKeyFormat,
     API_KEY_STORAGE,
 } from '../services/newShootMapping';
+import type { GarmentSpec } from '../types';
+
 
 const NewGenerationPage: React.FC = () => {
     // Image state
@@ -54,6 +56,8 @@ const NewGenerationPage: React.FC = () => {
     const [hairLength, setHairLength] = useState('medium');
     const [measurements, setMeasurements] = useState('');
 
+
+
     // Output state
     const [selectedPurposes, setSelectedPurposes] = useState<Set<string>>(new Set(['ec']));
     const [resolution, setResolution] = useState<'STD' | 'HD' | 'MAX'>('STD');
@@ -78,6 +82,21 @@ const NewGenerationPage: React.FC = () => {
     const handleCampaignRefImageChange = useCallback((b64: string | null) => {
         setCampaignRefImage(b64);
     }, []);
+
+    // ─── EC Hero Product & Garment Sizing ─────────────────────────────────────
+    // heroProduct: which garment is being featured on this EC page
+    const [heroProduct, setHeroProduct] = useState<string | null>(null);
+    // garmentSpecs: user-provided sizing/material per garment category
+    const [garmentSpecs, setGarmentSpecs] = useState<Record<string, GarmentSpec>>({});
+
+    const handleHeroProductChange = useCallback((itemKey: string | null) => {
+        setHeroProduct(itemKey);
+    }, []);
+
+    const handleGarmentSpecChange = useCallback((itemKey: string, spec: GarmentSpec) => {
+        setGarmentSpecs(prev => ({ ...prev, [itemKey]: spec }));
+    }, []);
+
 
     const handleToggleEcView = useCallback((view: string) => {
         setEcViews(prev => {
@@ -162,6 +181,41 @@ const NewGenerationPage: React.FC = () => {
     const ecValid = !selectedPurposes.has('ec') || ecViews.size > 0;
     const canGenerate = hasImages && selectedPurposes.size > 0 && ecValid;
 
+    // ─── Back-shot warning: ec_back selected but no alt[0] (back) images uploaded ───
+    const hasBackAltImages = Object.values(altImages).some(alts => alts[0]);
+    const needsBackWarning = ecViews.has('ec_back') && !hasBackAltImages;
+
+    // ─── Canvas bust-up crop helper (upper 42% of image = head to mid-chest) ──────
+    // This ensures bust-up ALWAYS shows the exact same garment as the front shot.
+    const cropBustUp = (dataUrl: string): Promise<string> => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                // Target 3:4 portrait — crop the top ~42% of the image
+                const cropHeightRatio = 0.42;
+                const srcHeight = Math.round(img.height * cropHeightRatio);
+                const srcWidth = img.width;
+
+                // Output canvas: maintain 3:4 ratio
+                const outW = srcWidth;
+                const outH = Math.round(srcWidth * (4 / 3));
+                canvas.width = outW;
+                canvas.height = outH;
+                const ctx = canvas.getContext('2d')!;
+
+                // Fill white background
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, outW, outH);
+
+                // Draw cropped portion, scaled to fill canvas
+                ctx.drawImage(img, 0, 0, srcWidth, srcHeight, 0, 0, outW, outH);
+                resolve(canvas.toDataURL('image/jpeg', 0.95));
+            };
+            img.src = dataUrl;
+        });
+    };
+
     const handleGeneratePreview = useCallback(async () => {
         if (!canGenerate) return;
 
@@ -202,17 +256,107 @@ const NewGenerationPage: React.FC = () => {
             const purposeList: string[] = [];
             for (const purpose of selectedPurposes) {
                 if (purpose === 'ec') {
-                    // Replace 'ec' with the individual selected view keys
                     for (const view of ecViews) purposeList.push(view);
                 } else {
                     purposeList.push(purpose);
                 }
             }
 
-            const results = await Promise.all(
-                purposeList.map(async (purpose) => {
-                    // Look up in EC_VIEW_SHOTS first, then PURPOSE_SHOT_MAP
-                    const shotCfg = EC_VIEW_SHOTS[purpose] ?? PURPOSE_SHOT_MAP[purpose] ?? PURPOSE_SHOT_MAP['ec'];
+            // ─── Sequential generation with anchor_model chaining ───────────────
+            // EC multi-view: generate ec_front first, chain its result as anchor
+            const ecViewKeys = new Set(['ec_front', 'ec_back', 'ec_side', 'ec_top', 'ec_bottom']);
+            const ecPurposes = purposeList.filter(p => ecViewKeys.has(p));
+            const nonEcPurposes = purposeList.filter(p => !ecViewKeys.has(p));
+
+            // Sort EC purposes: ec_front first, ec_top last (Canvas crop)
+            const orderedEcPurposes = [
+                ...ecPurposes.filter(p => p === 'ec_front'),
+                ...ecPurposes.filter(p => p !== 'ec_front' && p !== 'ec_top'),
+                ...ecPurposes.filter(p => p === 'ec_top'),
+            ];
+
+            const results: PreviewResult[] = [];
+
+            // Track the anchor image — set after ec_front completes
+            let anchorModelBase64: string | null = null;
+
+            // Generate EC shots sequentially (anchor_model chained from ec_front)
+            for (const purpose of orderedEcPurposes) {
+
+
+                const shotCfg = EC_VIEW_SHOTS[purpose] ?? PURPOSE_SHOT_MAP[purpose] ?? PURPOSE_SHOT_MAP['ec'];
+
+                // ── ec_top (バストアップ): Canvas crop from ec_front — no AI generation ──
+                // This guarantees 100% garment consistency (no AI re-invention of clothing).
+                if (purpose === 'ec_top' && anchorModelBase64) {
+                    const bustUrl = await cropBustUp(anchorModelBase64);
+                    const outputCfg = getOutputPurposeConfig(purpose);
+                    results.push({
+                        id: `${purpose}_${Date.now()}`,
+                        purpose: outputCfg.label ?? shotCfg.label,
+                        imageUrl: bustUrl,
+                        aspectRatio: shotCfg.aspectLabel,
+                        label: shotCfg.label,
+                        status: 'complete' as const,
+                    });
+                    continue; // Skip AI generation for this shot
+                }
+
+                const lighting = buildLightingConfig(studioPreset);
+                const scene = buildSceneConfig(
+                    studioPreset,
+                    shotCfg.shotType,
+                    focalLength,
+                    shotCfg.outputPurpose
+                );
+
+                // ── Pose override for back/side shots: always ec_natural ──────────────
+                // ec_back and ec_side must NOT use editorial/relaxed poses —
+                // they need neutral arms-at-sides for consistent garment documentation.
+                const effectivePose = (purpose === 'ec_back' || purpose === 'ec_side')
+                    ? 'ec_natural'
+                    : pose;
+
+                const mannequin = buildMannequinConfig(
+                    gender, ageRange, bodyType, vibe, effectivePose,
+                    studioPreset, ethnicity, skinTone, hairColor, hairLength,
+                );
+
+                // Build images dict with base_model + anchor for remaining EC shots
+                const shotImages: Record<string, string> = { ...validImages };
+                if (anchorModelBase64) {
+                    shotImages['anchor_model'] = anchorModelBase64;
+                }
+
+                const imageUrl = await generateFashionShot(
+                    apiKey, analysis, lighting, mannequin, scene, shotImages,
+                    undefined, undefined, undefined, undefined,
+                    { heroProduct, specs: garmentSpecs }
+                );
+
+
+
+                const outputCfg = getOutputPurposeConfig(purpose);
+                results.push({
+                    id: `${purpose}_${Date.now()}`,
+                    purpose: outputCfg.label ?? shotCfg.label,
+                    imageUrl,
+                    aspectRatio: shotCfg.aspectLabel,
+                    label: shotCfg.label,
+                    status: 'complete' as const,
+                });
+
+                // After ec_front completes, store result as anchor for subsequent shots
+                if (purpose === 'ec_front') {
+                    anchorModelBase64 = imageUrl;
+                }
+            }
+
+
+            // Non-EC purposes (Instagram, Ads) — generate in parallel since they don't share anchor
+            const nonEcResults = await Promise.all(
+                nonEcPurposes.map(async (purpose) => {
+                    const shotCfg = PURPOSE_SHOT_MAP[purpose] ?? PURPOSE_SHOT_MAP['ec'];
 
                     const lighting = buildLightingConfig(studioPreset);
                     const scene = buildSceneConfig(
@@ -224,40 +368,31 @@ const NewGenerationPage: React.FC = () => {
                     // Campaign/Instagram: override pose to prevent EC display poses
                     const effectivePose = (() => {
                         if (shotCfg.outputPurpose === 'campaign') {
-                            // Force editorial pose — EC neutral/relaxed looks wrong in campaigns
                             return pose.startsWith('editorial') ? pose : 'editorial_power';
                         }
                         if (shotCfg.outputPurpose === 'instagram') {
-                            // Instagram prefers lifestyle poses
                             return pose.startsWith('lifestyle') ? pose : 'lifestyle_candid';
                         }
                         return pose;
                     })();
                     const mannequin = buildMannequinConfig(
-                        gender,
-                        ageRange,
-                        bodyType,
-                        vibe,
-                        effectivePose,
-                        studioPreset,
-                        ethnicity,
-                        skinTone,
-                        hairColor,
-                        hairLength,
+                        gender, ageRange, bodyType, vibe, effectivePose,
+                        studioPreset, ethnicity, skinTone, hairColor, hairLength,
                     );
 
-                    // 本物の Gemini 生成（返り値は data:image/png;base64,... 文字列）
+                    // Inject fitted model as anchor for identity + outfit consistency
+                    const nonEcImages: Record<string, string> = { ...validImages };
+                    if (anchorModelBase64) {
+                        nonEcImages['anchor_model'] = anchorModelBase64;
+                    }
+
                     const imageUrl = await generateFashionShot(
-                        apiKey,
-                        analysis,
-                        lighting,
-                        mannequin,
-                        scene,
-                        validImages
+                        apiKey, analysis, lighting, mannequin, scene, nonEcImages,
+                        undefined, undefined, undefined, undefined,
+                        { heroProduct, specs: garmentSpecs }
                     );
 
                     const outputCfg = getOutputPurposeConfig(purpose);
-
                     return {
                         id: `${purpose}_${Date.now()}`,
                         purpose: outputCfg.label ?? shotCfg.label,
@@ -268,6 +403,8 @@ const NewGenerationPage: React.FC = () => {
                     } satisfies PreviewResult;
                 })
             );
+
+            results.push(...nonEcResults);
 
             setGenResults(results);
             setGenStatus('complete');
@@ -519,57 +656,74 @@ const NewGenerationPage: React.FC = () => {
             )}
             <AppShell3Col
                 left={
-                    <WorkflowPanel
-                        uploadedImages={uploadedImages}
-                        onImageUpload={handleImageUpload}
-                        onImageClear={handleImageClear}
-                        altImages={altImages}
-                        onAltImageUpload={handleAltImageUpload}
-                        onAltImageClear={handleAltImageClear}
-                        selectedBrand={selectedBrand}
-                        onSelectBrand={setSelectedBrand}
-                        savedBrands={savedBrands}
-                        onSaveBrand={handleSaveBrand}
-                        studioPreset={studioPreset}
-                        onSelectStudioPreset={setStudioPreset}
-                        shotType={shotType}
-                        onShotTypeChange={setShotType}
-                        focalLength={focalLength}
-                        onFocalLengthChange={setFocalLength}
-                        seed={seed}
-                        onSeedChange={setSeed}
-                        gender={gender}
-                        onGenderChange={setGender}
-                        ageRange={ageRange}
-                        onAgeRangeChange={setAgeRange}
-                        bodyType={bodyType}
-                        onBodyTypeChange={setBodyType}
-                        vibe={vibe}
-                        onVibeChange={setVibe}
-                        pose={pose}
-                        onPoseChange={setPose}
-                        ethnicity={ethnicity}
-                        onEthnicityChange={setEthnicity}
-                        skinTone={skinTone}
-                        onSkinToneChange={setSkinTone}
-                        hairColor={hairColor}
-                        onHairColorChange={setHairColor}
-                        hairLength={hairLength}
-                        onHairLengthChange={setHairLength}
-                        measurements={measurements}
-                        onMeasurementsChange={setMeasurements}
-                        selectedPurposes={selectedPurposes}
-                        onTogglePurpose={handleTogglePurpose}
-                        resolution={resolution}
-                        onResolutionChange={setResolution}
-                        ecViews={ecViews}
-                        onToggleEcView={handleToggleEcView}
-                        campaignRefImage={campaignRefImage}
-                        onCampaignRefImageChange={handleCampaignRefImageChange}
-                        onGenerate={handleGeneratePreview}
-                        canGenerate={canGenerate}
-                        isGenerating={genStatus === 'generating'}
-                    />
+                    <div className="flex flex-col h-full">
+                        {/* Back-shot accuracy warning banner */}
+                        {needsBackWarning && (
+                            <div className="mx-3 mt-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] text-amber-300 leading-relaxed flex-shrink-0">
+                                <span className="font-bold">⚠️ 背面精度UP推奨:</span>{' '}
+                                各衣装の「背面 Back」写真を追加すると、EC Backショットの正確性が大幅に向上します。
+                                <br />
+                                <span className="text-amber-400/60">Step 1 → 衣装 → 「+ アングル追加」→ 背面</span>
+                            </div>
+                        )}
+                        <WorkflowPanel
+                            uploadedImages={uploadedImages}
+                            onImageUpload={handleImageUpload}
+                            onImageClear={handleImageClear}
+                            altImages={altImages}
+                            onAltImageUpload={handleAltImageUpload}
+                            onAltImageClear={handleAltImageClear}
+                            selectedBrand={selectedBrand}
+                            onSelectBrand={setSelectedBrand}
+                            savedBrands={savedBrands}
+                            onSaveBrand={handleSaveBrand}
+                            studioPreset={studioPreset}
+                            onSelectStudioPreset={setStudioPreset}
+                            shotType={shotType}
+                            onShotTypeChange={setShotType}
+                            focalLength={focalLength}
+                            onFocalLengthChange={setFocalLength}
+                            seed={seed}
+                            onSeedChange={setSeed}
+                            gender={gender}
+                            onGenderChange={setGender}
+                            ageRange={ageRange}
+                            onAgeRangeChange={setAgeRange}
+                            bodyType={bodyType}
+                            onBodyTypeChange={setBodyType}
+                            vibe={vibe}
+                            onVibeChange={setVibe}
+                            pose={pose}
+                            onPoseChange={setPose}
+                            ethnicity={ethnicity}
+                            onEthnicityChange={setEthnicity}
+                            skinTone={skinTone}
+                            onSkinToneChange={setSkinTone}
+                            hairColor={hairColor}
+                            onHairColorChange={setHairColor}
+                            hairLength={hairLength}
+                            onHairLengthChange={setHairLength}
+                            measurements={measurements}
+                            onMeasurementsChange={setMeasurements}
+                            selectedPurposes={selectedPurposes}
+                            onTogglePurpose={handleTogglePurpose}
+                            resolution={resolution}
+                            onResolutionChange={setResolution}
+                            ecViews={ecViews}
+                            onToggleEcView={handleToggleEcView}
+                            campaignRefImage={campaignRefImage}
+                            onCampaignRefImageChange={handleCampaignRefImageChange}
+                            heroProduct={heroProduct}
+                            onHeroProductChange={handleHeroProductChange}
+                            garmentSpecs={garmentSpecs}
+                            onGarmentSpecChange={handleGarmentSpecChange}
+                            onGenerate={handleGeneratePreview}
+                            canGenerate={canGenerate}
+                            isGenerating={genStatus === 'generating'}
+                        />
+
+                    </div>
+
                 }
                 center={
                     <GenerationCanvas

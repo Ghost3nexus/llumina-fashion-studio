@@ -192,6 +192,118 @@ const analyzeOverallStyle = async (
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
+// ─── Styling/Layering state analysis ─────────────────────────────────────────
+// Captures HOW garments are worn together — the "着こなし状態" that must remain
+// consistent across all EC shots (front, back, side)
+
+const LAYERING_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    outerOpenState: { type: Type.STRING },
+    outerButtonState: { type: Type.STRING },
+    topTuckState: { type: Type.STRING },
+    innerVisibility: { type: Type.STRING },
+    innerHemVisible: { type: Type.BOOLEAN },
+    innerHemDescription: { type: Type.STRING },
+    sleeveCuffState: { type: Type.STRING },
+    beltState: { type: Type.STRING },
+    stylingDescription: { type: Type.STRING },
+  },
+  required: ['stylingDescription'],
+} as const;
+
+const analyzeStylingState = async (
+  ai: GoogleGenAI,
+  allImages: string[], // All uploaded garment images (front views)
+  itemMap: Record<string, ItemAnalysis>
+): Promise<import('../types').LayeringAnalysis | undefined> => {
+  // Only run if there are multiple garment types worth analyzing for layering
+  const hasOuter = !!itemMap['outer'];
+  const hasTopsOrInner = !!(itemMap['tops'] || itemMap['inner']);
+  if (!hasOuter && !hasTopsOrInner) return undefined;
+  if (allImages.length === 0) return undefined;
+
+  try {
+    // Prepare all image parts
+    const parts: any[] = [];
+    parts.push({
+      text: `You are a fashion styling expert analyzing HOW multiple garments are being worn together in these reference images.
+Do NOT describe the individual garments — describe ONLY the styling/layering state (how they interact).
+
+ANALYZE THESE SPECIFIC STYLING STATES:
+
+1. OUTER GARMENT open/closed state:
+   - Is the outer garment (coat/jacket/blazer) fully open, partially open, or closed/buttoned?
+   - Which specific buttons are fastened, if any? (e.g. "all 4 buttons open" or "top 2 buttons open, rest closed")
+
+2. TOP/SHIRT tuck state:
+   - Is the shirt/top tucked INTO the pants/skirt, or untucked (hanging free)?
+   - "fully_tucked" = entire shirt hem inside pants
+   - "untucked" = shirt hangs freely outside pants
+   - "half_tucked_front" = only front tucked, back hangs free
+
+3. INNER LAYER visibility:
+   - How much of the inner layer (shirt/blouse) is visible under the outer?
+   - Is the inner shirt's HEM visible below the outer garment's hem? YES or NO?
+   - CRITICAL: If the inner shirt hem is NOT showing below the coat — state that clearly.
+
+4. SLEEVE/CUFF state:
+   - Are sleeves straight, rolled, or showing cuffs?
+   - E.g.: "shirt cuffs visible extending 2cm beyond coat sleeves"
+
+5. BELT state (if present):
+   - Is the belt/tie of the outer garment tied, untied, hanging?
+   - Where: front, back, or hanging loose on sides?
+
+6. OVERALL STYLING DESCRIPTION:
+   Write a precise, authoritative description of all styling states that MUST be reproduced identically in every shot.
+   Example: "Beige trench coat worn OPEN (all buttons unfastened, lapels falling open naturally). Light blue shirt visible at collar and chest area through open coat. Shirt hem is TUCKED into shorts — NOT visible below coat hem. Coat belt untied, hanging at sides."
+
+TUCK SYMMETRY RULES (CRITICAL):
+   - If the shirt appears tucked on one side but not the other → report "half_tucked_front" NOT "fully_tucked"
+   - If the shirt is tucked fully on both sides → report "fully_tucked"
+   - If the shirt hangs completely free → report "untucked"
+   - BE PRECISE: A shirt that is asymmetrically half-tucked is a specific styling choice — document it exactly.
+
+GARMENT LENGTH (CRITICAL — for pants/skirt):
+   - Where does the bottom garment hem fall? Options: floor_length, ankle_length, mid_calf, knee_length, cropped_above_knee, mini
+   - This information is essential for ensuring consistent hem position across all camera angles.
+   - Include this in stylingDescription: e.g. "Wide-leg trousers are FULL LENGTH (ankle/floor length) — they must remain full-length in all shots."
+
+IMPORTANT: Be extremely precise. This description will be used to enforce consistency across all camera angles.
+The back-view shot MUST reproduce the same styling state as the front view.`
+
+    });
+
+    for (let i = 0; i < allImages.length; i++) {
+      const { mimeType, data } = parseBase64(allImages[i]);
+      parts.push({ text: `Garment reference image ${i + 1}:` });
+      parts.push({ inlineData: { mimeType, data } });
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: { parts },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: LAYERING_SCHEMA as any,
+        temperature: 0.1, // Very low — we want precise factual description
+      },
+    });
+
+    const text = response.text;
+    if (!text) return undefined;
+    const result = JSON.parse(text);
+    console.log('✅ [LayeringState] Analyzed:', JSON.stringify(result, null, 2));
+    return result;
+  } catch (err) {
+    console.warn('⚠️ [LayeringState] Analysis failed (non-critical):', err);
+    return undefined;
+  }
+};
+
+
+
 export const analyzeClothingItems = async (apiKey: string, images: Record<string, string>): Promise<VisionAnalysis> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -200,9 +312,10 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
     console.log('📥 Images to analyze:', Object.keys(images));
 
 
-    // Filter valid garment images (skip model)
+    // Filter valid garment images (skip model, anchor_model, campaign_style_ref)
+    const skipKeys = new Set(['model', 'anchor_model', 'campaign_style_ref', 'base_model']);
     const validEntries = Object.entries(images).filter(
-      ([key, b64]) => b64 && key !== 'model'
+      ([key, b64]) => b64 && !skipKeys.has(key)
     );
 
     if (validEntries.length === 0) throw new Error('No images provided for analysis');
@@ -222,7 +335,7 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
     console.log('📷 Main items:', mainEntries.map(([k]) => k));
     console.log('📷 Alt angles:', Object.entries(altMap).map(([k, v]) => `${k}(${v.length})`));
 
-    // Phase 3: Parallel per-item analysis — pass alt images to enrich analysis
+    // Phase 1: Parallel per-item analysis — pass alt images to enrich analysis
     const itemResults = await Promise.all(
       mainEntries.map(([key, b64]) => analyzeOneItem(ai, key, b64, altMap[key] ?? []))
     );
@@ -232,13 +345,22 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
       itemMap[key] = analysis;
     }
 
-    // Aggregate overall style from all items
+    // Phase 2: Aggregate overall style from all items
     const overall = await analyzeOverallStyle(ai, itemMap);
+
+    // Phase 3: Analyze "着こなし状態" (layering/styling state) — HOW garments are worn together
+    // Run only if there are multiple garment layers (OUTER + TOPS/INNER at minimum)
+    const mainImageB64s = mainEntries.map(([, b64]) => b64);
+    const layeringState = await analyzeStylingState(ai, mainImageB64s, itemMap);
+    if (layeringState) {
+      console.log('👗 [LayeringState] Styling state captured successfully');
+    }
 
     const analysis: VisionAnalysis = {
       ...itemMap as any,
       overallStyle: overall.overallStyle,
       keywords: overall.keywords,
+      layeringState,
     };
 
     console.log('📤 Full analysis result:', JSON.stringify(analysis, null, 2));
@@ -250,6 +372,7 @@ export const analyzeClothingItems = async (apiKey: string, images: Record<string
     throw error;
   }
 };
+
 
 export const interpretModification = async (
   apiKey: string,
@@ -781,8 +904,10 @@ export const generateFashionShot = async (
   garmentMeasurements?: DetailedGarmentMeasurements,
   accessoryMeasurements?: DetailedAccessoryMeasurements,
   accessoryPositioning?: DetailedAccessoryPositioning,
-  accessoryMaterials?: DetailedAccessoryMaterials
+  accessoryMaterials?: DetailedAccessoryMaterials,
+  garmentContext?: import('../types').GarmentContext
 ): Promise<string> => {
+
   try {
     const ai = new GoogleGenAI({ apiKey });
 
@@ -978,6 +1103,25 @@ export const generateFashionShot = async (
         CRITICAL: Prop must be minimal (wireframe, acrylic, simple stool — never ornate furniture).`,
 
       // === レガシー互換（強化バージョン）===
+      ec_direct: `EC direct upright standing pose — strict product catalog standard.
+        BODY: Perfectly upright, weight evenly distributed on both feet, shoulders level and square to camera.
+        ARMS: Both arms hanging completely straight and relaxed at sides. Hands fully open, fingers lightly together, pointing straight down.
+        LEGS: Feet parallel, hip-width apart — no offset or rotation.
+        TORSO: No rotation, no lean, facing directly forward (or completely backward for back view).
+        EXPRESSION: Neutral, direct gaze, no expression — garment documentation mode only.
+        REFERENCE: UNIQLO product catalog — clean, strict, zero distraction from garment.
+        CRITICAL: Zero drama. This pose is invisible — the garment is 100% the subject.`,
+
+      ec_walk: `EC walking motion pose — natural stride captured mid-step.
+        BODY: Model captured mid-stride — weight transferring from back foot to front foot.
+        ARMS: Swinging naturally in opposition to legs — relaxed, natural arm swing.
+        LEGS: Front leg between mid-swing and touchdown, back leg pushing off. Natural relaxed gait.
+        TORSO: Very slight forward lean into the walk, natural rotation from arm swing.
+        EXPRESSION: Neutral confidence, looking slightly past camera — focus on movement, not posing.
+        REFERENCE: Zara / H&M catalog walking shots — garment drape in natural motion clearly visible.
+        CRITICAL: Garment flow and fabric drape must be clearly visible as the primary focus of the motion.`,
+
+
       standing: `Elegant neutral standing pose. Weight slightly shifted to one side, shoulders relaxed and open.
         Arms at sides with natural gentle curve in fingers. Direct confident gaze. Clean body line.`,
       walking: `Dynamic walking motion captured mid-stride. Front arm swinging naturally opposite to leading leg.
@@ -1069,20 +1213,38 @@ export const generateFashionShot = async (
         REFERENCE STANDARD: SSENSE, NET-A-PORTER, Jil Sander e-commerce product pages.`,
 
       full_body_back: `Full body REAR view shot, head-to-toe. Model faces COMPLETELY AWAY from camera (180° rotation).
+        OUTFIT CONTINUITY LOCK (CRITICAL — HIGHEST PRIORITY):
+        This is the EXACT SAME outfit as the front view — IDENTICAL garments, IDENTICAL colors, IDENTICAL styling, IDENTICAL layering.
+        Imagine the model from the front shot has literally turned around 180°. NOTHING about the clothing changes whatsoever.
+        The garment colors (every hex value), fabric textures, layering order, and fit silhouette must be 100% identical to what is shown in the REFERENCE images.
+        If the reference shows a brown jacket over a black top with grey pants — it must remain brown jacket, black top, grey pants in this back shot. No exceptions.
+        POSE LOCK (MANDATORY — EC NEUTRAL BACK POSE):
+        The model MUST stand in a plain, neutral EC documentation pose:
+        - ARMS: Both arms hanging naturally and relaxed at either side of the body. Hands lightly open, fingers pointing downward.
+        - STRICTLY FORBIDDEN: Hands on hips, hands in pockets, crossed arms, raised arms, or ANY dramatic arm position.
+        - LEGS: Feet roughly parallel, shoulder-width apart. No wide-legged stance, no crossed legs.
+        - TORSO: Straight upright posture. Shoulders square to camera, no twisting.
+        - This is a PRODUCT DOCUMENTATION shot — plain, neutral, completely non-dramatic pose only.
         COMPOSITION: Center-aligned, same framing as front shot for visual consistency.
         CRITICAL for EC: Back design details (zippers, vents, back pockets, seam lines, labels, 
         back hem shape, shoulder blade drape) must be clearly visible. 
-        Hair should be styled so it does NOT obstruct garment back neckline or collar details.
+        Hair: tied back or pinned up so it does NOT obstruct garment back neckline, collar stand, upper back seams, or any rear garment details.
         REFERENCE STANDARD: Matches front shot framing exactly for EC product page pairing.`,
 
       // === 商品フォーカスショット ===
-      bust_top: `Close bust-top crop, framing from mid-chest to just above head.
-        CRITICAL: This shot is for TOPS/OUTERWEAR detail showcase. 
-        Collar construction, neckline shape, fabric texture at close range, button/zipper details,
-        shoulder seam placement, and stitching quality must be razor-sharp.
-        Show layering details if multiple top layers are worn.
-        Material differentiation between layers must be visible (e.g., cotton vs wool vs silk sheen).
-        REFERENCE: Burberry/GANNI detail shots — visible thread texture, seam construction quality.`,
+      bust_top: `EC BUST-TOP CROP — Close-up framing from mid-chest to just above head.
+        CRITICAL GARMENT LOCK (HIGHEST PRIORITY):
+        This shot is a CLOSE-UP CROP of the FRONT VIEW — the camera moves closer, NOTHING else changes.
+        The garment(s) visible in this bust-top crop MUST be 100% identical to the REFERENCE IMAGES.
+        If the reference shows a light blue Oxford shirt: this crop MUST show the SAME light blue Oxford shirt — same color, same collar style, same buttons, same fabric.
+        Do NOT introduce any garment not shown in the reference images. Do NOT change the garment design, color, or fabric.
+        POSE: Arms hanging naturally at sides in neutral EC pose.
+        ARMS POSITION: The upper arms should be in a relaxed downward position — the same natural position as the full-body front shot, just cropped closer.
+        STRICTLY FORBIDDEN: Hands on hips, raised arms, crossed arms in this shot.
+        FOCUS AREAS: Collar construction, neckline shape, fabric texture/weave at close range, button/zipper details,
+        shoulder seam placement, stitching quality, layering interaction if outer garment worn.
+        Material differentiation between layers must be visible.
+        REFERENCE: Burberry/GANNI EC bust detail shots — visible thread texture, seam construction quality.`,
 
       middle_top: `Medium crop from chest to hip level. Torso-focused framing.
         CRITICAL: This shot showcases the TORSO INTERACTION ZONE — waistline, tucking style,
@@ -1158,6 +1320,10 @@ export const generateFashionShot = async (
 
       // === EC multi-view additional shots ===
       ec_side: `Three-quarter turn side view for silhouette and side-seam showcase.
+        OUTFIT CONTINUITY LOCK (CRITICAL — HIGHEST PRIORITY):
+        This is the EXACT SAME outfit as the front view — IDENTICAL garments, IDENTICAL colors, IDENTICAL styling.
+        The model has simply rotated 45 degrees to the right. NOTHING about the clothing changes.
+        All garment colors, fabric textures, layering, and silhouette must be 100% identical to the front/back shots.
         CRITICAL FRAMING: Model rotated approximately 45 degrees from camera (three-quarter turn).
         Face should be looking slightly back toward the camera — over-the-shoulder or subtle glance.
         MUST SHOW: Side seams, garment profile, shoulder-to-hem silhouette, side pocket detail.
@@ -1194,15 +1360,34 @@ export const generateFashionShot = async (
       FRAMING: ${shotTypePrompts[scene.shotType] || shotTypePrompts['full_body']}.
       
       SUBJECT:
+      ${images.base_model ? `BASE MODEL IDENTITY (STAGE 1 CASTING — ABSOLUTE LOCK):
+      A base model was generated in Stage 1 (CASTING). The person in the BASE_MODEL reference image
+      defines the CANONICAL identity for this entire session.
+      - Face: 100% identical — same bone structure, jawline, nose, eyes, eyebrows, lips, expression quality
+      - Body: exact same proportions, height, build, posture
+      - Skin: exact same tone, complexion, texture
+      - Hair: exact same color, length, style, texture
+      ALL subsequent shots MUST reproduce this exact person. No deviation is acceptable.
+      The BASE_MODEL image shows the model in neutral clothing — you will REPLACE that clothing
+      with the product garments described below, while keeping the person's identity LOCKED.
+      ` : ''}
       ${images.anchor_model ? `IDENTITY LOCK (CRITICAL — HIGHEST PRIORITY):
+
       The model in this image MUST be 100% identical to the ANCHOR_MODEL reference image.
       - Same face structure, bone structure, jawline, nose, eyes, eyebrows, lips
       - Same skin tone and complexion
       - Same hair style, color, length, and texture
       - Same body proportions, height, posture quality
       - Same makeup and overall appearance
-      - Only the POSE, CAMERA ANGLE, and FRAMING should change
-      - face 100% same as ANCHOR_MODEL reference
+      - Same outfit and garments — IDENTICAL clothing to the anchor_model image
+      POSE CONSTRAINT (MANDATORY FOR ALL EC SHOTS):
+      The model MUST maintain an EC-appropriate neutral documentation pose:
+      - ARMS: Both arms hanging naturally and relaxed at sides of the body (NOT on hips, NOT crossed, NOT raised)
+      - HANDS: Fingers lightly open, pointing relaxed downward — no gripping hips or dramatic hand positions
+      - LEGS: Feet parallel, shoulder-width apart — no wide stance, no crossed legs
+      - POSTURE: Straight, upright — this is a product documentation shot, not an editorial
+      - This pose constraint applies to: back view, bust-top crop, side view, and bottom-focus crop
+      Only the CAMERA ANGLE, FRAMING, and CROP should differ between shots.
       ` : ''}
       ${images.model ? "CRITICAL: The subject MUST be the person shown in the REFERENCE MODEL image. Preserve their facial features, body type, and hair style exactly." : ""}
       A realistic ${mannequin.ageGroup} ${mannequin.ethnicity} ${mannequin.gender} model, ${mannequin.bodyType} build.
@@ -1269,18 +1454,109 @@ export const generateFashionShot = async (
       - Ensure length falls exactly where specified (e.g., hips, ankles, etc.).
       ` : "Fit: Standard sizing compliant with model physique."}
 
-      LIGHTING & MOOD:
+      LIGHTING & BACKGROUND — スタジオEC基準 (CRITICAL):
       ${presetPrompts[scene.lightingPreset]}. 
       Lighting color: ${lighting.color}. Intensity level: ${lighting.intensity}.
+      STUDIO CLEANLINESS (MANDATORY): This is a professional EC product photo.
+      - NO visible light sources, softboxes, light stands, or photography equipment in the frame.
+      - NO light flares, lens reflections, or hot spots from studio equipment.
+      - NO visible background seams or studio floor joins.
+      - Background MUST be pure, seamless, and clean — as if infinitely deep.
+      - Shadows: soft and natural only (no hard-edged flash shadows).
+      REFERENCE: Uniqlo/Zara EC studio standard — flat, professional, zero studio artifacts visible.
 
-      OUTFIT DETAILS (MUST MATCH EXACTLY):
-      ${analysis.tops ? `TOP: ${analysis.tops.description}. Fabric: ${analysis.tops.fabric}. Style: ${analysis.tops.style}. Color: ${analysis.tops.colorHex}.` : ''}
-      ${analysis.inner ? `INNER: ${analysis.inner.description}. Fabric: ${analysis.inner.fabric}. Style: ${analysis.inner.style}. Color: ${analysis.inner.colorHex}.` : ''}
-      ${analysis.pants ? `BOTTOM: ${analysis.pants.description}. Fabric: ${analysis.pants.fabric}. Style: ${analysis.pants.style}. Color: ${analysis.pants.colorHex}.` : ''}
-      ${analysis.outer ? `OUTER: ${analysis.outer.description}. Fabric: ${analysis.outer.fabric}. Style: ${analysis.outer.style}. Color: ${analysis.outer.colorHex}.` : ''}
-      ${analysis.shoes ? `SHOES: ${analysis.shoes.description}. Fabric: ${analysis.shoes.fabric}. Style: ${analysis.shoes.style}. Color: ${analysis.shoes.colorHex}.` : ''}
-      
+      OUTFIT DETAILS — COLOR LOCK ACTIVE (MUST MATCH EXACTLY IN ALL SHOTS):
+      CRITICAL COLOR RULE: Every color listed below is LOCKED. Studio lighting must NOT shift, lighten, darken, or alter these colors in any way. The colors you see in the reference images ARE the correct colors. Render them as-is.
+      ${analysis.tops ? `TOP: ${analysis.tops.description}. Fabric: ${analysis.tops.fabric}. Style: ${analysis.tops.style}. COLOR LOCKED: ${analysis.tops.colorDescription ?? analysis.tops.colorHex} — do NOT alter this color under any lighting. Render the exact hue.` : ''}
+      ${analysis.inner ? `INNER: ${analysis.inner.description}. Fabric: ${analysis.inner.fabric}. Style: ${analysis.inner.style}. COLOR LOCKED: ${analysis.inner.colorDescription ?? analysis.inner.colorHex} — do NOT alter this color under any lighting. Render the exact hue.` : ''}
+      ${analysis.pants ? `BOTTOM: ${analysis.pants.description}. Fabric: ${analysis.pants.fabric}. Style: ${analysis.pants.style}. COLOR LOCKED: ${analysis.pants.colorDescription ?? analysis.pants.colorHex} — do NOT alter this color under any lighting. Render the exact hue.` : ''}
+      ${analysis.outer ? `OUTER: ${analysis.outer.description}. Fabric: ${analysis.outer.fabric}. Style: ${analysis.outer.style}. COLOR LOCKED: ${analysis.outer.colorDescription ?? analysis.outer.colorHex} — do NOT alter this color under any lighting. Render the exact hue.` : ''}
+      ${analysis.shoes ? `SHOES: ${analysis.shoes.description}. Fabric: ${analysis.shoes.fabric}. Style: ${analysis.shoes.style}. COLOR LOCKED: ${analysis.shoes.colorDescription ?? analysis.shoes.colorHex} — do NOT alter this color under any lighting. Render the exact hue.` : `FOOTWEAR (CRITICAL — NO BARE FEET): No shoes image was provided, but bare feet are NEVER acceptable in EC fashion photography.
+      DEFAULT FOOTWEAR: Render the model wearing simple, neutral, non-distracting flat shoes or low pumps in a neutral color (beige, ivory, light grey, or black — match garment colors).
+      Shoe style must be minimal and unobtrusive — the goal is to avoid bare feet, NOT to showcase the shoe.`}
+
+      GARMENT LENGTH LOCK (CRITICAL — ALL SHOTS):
+      ${analysis.pants ? `PANTS/BOTTOM LENGTH: The bottom garment in the reference image has a specific hem length — this MUST be reproduced IDENTICALLY in every shot.
+      If the reference shows FULL-LENGTH pants reaching the ankle/floor, they must be full-length in ALL shots (front, back, side, bust, detail).
+      DO NOT shorten, crop or alter the hem line between shots. The pant hem MUST land at the same point on the leg in every single view.
+      CRITICAL: Never render cropped pants as full-length or full-length pants as cropped — replicate the EXACT hem position from the reference image.` : ''}
+      ${analysis.tops ? `TOP/SHIRT TUCK SYMMETRY: If the shirt/top is tucked in, it MUST be tucked symmetrically on BOTH sides.
+      STRICTLY FORBIDDEN: One side tucked in while other side hangs out. Half-tuck (front-tuck only) is only acceptable if the reference image explicitly shows this styling.
+      RULE: If the reference shows the shirt fully untucked → render fully untucked on all sides. If fully tucked → both sides tucked evenly.` : ''}
+
+
+      ${analysis.layeringState ? `
+      ══════════════════════════════════════════════════════
+      STYLING STATE LOCK — 着こなし状態 (ABSOLUTE LOCK — DO NOT DEVIATE):
+      ══════════════════════════════════════════════════════
+      This is the EXACT styling/wearing state that was captured from the reference images.
+      It MUST be reproduced identically in EVERY shot — front, back, side, bust-up, and bottom crops.
+      Any deviation from this styling state is an ERROR.
+
+      ${analysis.layeringState.outerOpenState ? `OUTER GARMENT STATE: ${analysis.layeringState.outerOpenState.replace(/_/g, ' ').toUpperCase()}${analysis.layeringState.outerButtonState ? ` — ${analysis.layeringState.outerButtonState}` : ''}` : ''}
+      ${analysis.layeringState.topTuckState ? `SHIRT/TOP TUCK STATE: ${analysis.layeringState.topTuckState.replace(/_/g, ' ').toUpperCase()}` : ''}
+      ${analysis.layeringState.innerVisibility ? `INNER LAYER VISIBILITY: ${analysis.layeringState.innerVisibility.replace(/_/g, ' ').toUpperCase()}` : ''}
+      ${analysis.layeringState.innerHemVisible !== undefined ? `INNER HEM BELOW COAT: ${analysis.layeringState.innerHemVisible ? 'VISIBLE — the inner shirt/layer hem shows below the outer garment hem' : 'NOT VISIBLE — the inner shirt hem stays INSIDE the outer garment. Do NOT show the inner hem peeking below the coat/jacket in any shot.'}` : ''}
+      ${analysis.layeringState.innerHemDescription ? `INNER HEM DETAIL: ${analysis.layeringState.innerHemDescription}` : ''}
+      ${analysis.layeringState.sleeveCuffState ? `SLEEVE/CUFF STATE: ${analysis.layeringState.sleeveCuffState.replace(/_/g, ' ').toUpperCase()}` : ''}
+      ${analysis.layeringState.beltState ? `BELT/TIE STATE: ${analysis.layeringState.beltState.replace(/_/g, ' ').toUpperCase()}` : ''}
+
+      FULL STYLING DESCRIPTION (authoritative — follow exactly):
+      "${analysis.layeringState.stylingDescription}"
+
+      REMINDER: In the BACK VIEW, reproduce this EXACT styling state. The outer garment must have the same open/closed state, the inner layer must have the same visibility, and the belt/tie (if any) must be in the same position as described above.
+      ══════════════════════════════════════════════════════
+      ` : ''}
+
+      ${garmentContext?.heroProduct ? (() => {
+        const hero = garmentContext.heroProduct;
+        const heroLabel: Record<string, string> = {
+          tops: 'TOP / SHIRT', pants: 'PANTS / BOTTOM', outer: 'OUTERWEAR',
+          inner: 'INNER LAYER', shoes: 'SHOES / FOOTWEAR'
+        };
+        const spec = garmentContext.specs?.[hero] ?? {};
+        const riseLabel = spec.rise
+          ? spec.rise >= 28 ? 'high-rise' : spec.rise >= 24 ? 'mid-rise' : 'low-rise'
+          : null;
+        const widthLabel = spec.thighWidth
+          ? spec.thighWidth >= 38 ? 'wide-leg (ultra-wide silhouette)' : spec.thighWidth >= 30 ? 'straight/regular fit' : 'slim/tapered fit'
+          : null;
+
+        return `
+      ██████████████████████████████████████████████████████
+      EC HERO PRODUCT — 主役商品 (ABSOLUTE TOP PRIORITY)
+      ██████████████████████████████████████████████████████
+      THIS IS A [${heroLabel[hero] ?? hero.toUpperCase()}] PRODUCT EC PAGE.
+      The ${heroLabel[hero] ?? hero} is THE MAIN SUBJECT of this shot — it must be showcased with maximum clarity.
+
+      HERO GARMENT PHOTOGRAPHY STANDARDS:
+      - The ${heroLabel[hero] ?? hero} MUST be the most clearly visible and well-lit element in the frame.
+      - Silhouette, texture, drape, and construction details of the ${heroLabel[hero] ?? hero} are the PRIMARY information.
+      - Supporting garments (other items being worn) serve only to COMPLEMENT — they must NOT obscure or compete with the hero.
+
+      ${hero === 'pants' || hero === 'inner' ? `
+      PANTS/BOTTOM DETAIL VISIBILITY (CRITICAL):
+      - RISE: ${riseLabel ? `${riseLabel} — the waistband must sit at the ${riseLabel === 'high-rise' ? 'navel level or above, with maximum visible torso from waist to hip' : riseLabel === 'mid-rise' ? 'hip bone level' : 'below the hip bone'}.` : 'Reproduce the rise position exactly as shown in reference image.'}
+      - LENGTH: ${spec.length ? `${spec.length}cm total length — ${spec.length >= 100 ? 'FULL-LENGTH: hem must reach the ankle or floor in ALL shots' : spec.length >= 80 ? 'MIDI: hem falls at mid-calf' : 'CROPPED: hem ends well above the ankle'}.` : 'Replicate exact hem position from reference — do NOT alter pants length between shots.'}
+      - SILHOUETTE WIDTH: ${widthLabel ? widthLabel + ' — ' + (widthLabel.includes('wide') ? 'generous fabric volume must be visible at thigh and hem' : 'clean, fitted line') + '.' : 'Replicate exact leg width from reference.'}
+      - INSEAM: ${spec.inseam ? `${spec.inseam}cm inseam.` : 'Match reference.'}
+      - WAISTBAND: ${spec.waistStyle ? spec.waistStyle : 'Reproduce exactly as shown.'}
+      - MATERIAL: ${spec.material ? `${spec.material} — render fabric weight, drape, and texture accurately for this material. ${spec.material.includes('ウール') || spec.material.toLowerCase().includes('wool') ? 'Wool drapes with structured weight — NO limp or thin fabric appearance.' : spec.material.includes('デニム') || spec.material.toLowerCase().includes('denim') ? 'Denim has rigid, structured drape.' : 'Render material-appropriate drape and texture.'}` : 'Reproduce material texture and drape from reference.'}` : ''}
+
+      ${hero === 'tops' || hero === 'outer' ? `
+      TOPS/OUTERWEAR DETAIL VISIBILITY (CRITICAL):
+      - LENGTH: ${spec.length ? `${spec.length}cm — ${spec.length >= 80 ? 'long/oversized — shows hem clearly, draping over pants' : spec.length >= 60 ? 'standard length — hem sits at hip' : 'cropped — hem sits above waist'}.` : 'Replicate exact hem position from reference.'}
+      - SHOULDER WIDTH: ${spec.shoulderWidth ? `${spec.shoulderWidth}cm shoulder width — ${spec.shoulderWidth >= 48 ? 'oversized/dropped shoulder silhouette' : spec.shoulderWidth >= 42 ? 'regular/slightly relaxed fit' : 'fitted/narrow shoulder'}.` : 'Match reference.'}
+      - MATERIAL: ${spec.material ? spec.material : 'Reproduce from reference.'}` : ''}
+
+      STYLING RULE FOR HERO PRODUCT:
+      The model's pose, body language, and arm position must be chosen to MAXIMIZE visibility of the ${heroLabel[hero] ?? hero}.
+      Arms must NOT block, fold over, or obscure the hero garment in any shot.
+      ██████████████████████████████████████████████████████`;
+      })() : ''}
+
       ${analysis.bag || analysis.sunglasses || analysis.glasses || analysis.accessories ? `
+
 ACCESSORIES (MUST INCLUDE IF PROVIDED):
 ${analysis.bag ? `BAG: ${analysis.bag.description}. Material: ${analysis.bag.fabric}. Style: ${analysis.bag.style}. Color: ${analysis.bag.colorHex}.
 ${accessoryMeasurements?.bag?.width || accessoryMeasurements?.bag?.height ? `
@@ -1434,6 +1710,31 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
     const altAngleLabels = ['BACK VIEW', 'SIDE / DETAIL VIEW', 'CLOSE-UP DETAIL'];
     const altCounters: Record<string, number> = {};
 
+    // For back/side EC shots, prepend a global continuity instruction before all reference images
+    const isBackOrSideShot = scene.shotType === 'full_body_back' || scene.shotType === 'ec_side';
+    if (isBackOrSideShot) {
+      const viewLabel = scene.shotType === 'full_body_back' ? 'rear (180° rotated)' : '45-degree three-quarter side';
+      imageParts.push({
+        text: `CRITICAL OUTFIT CONTINUITY INSTRUCTION:
+        The reference images below show the EXACT garments that must appear in this ${viewLabel} shot.
+        Your task is NOT to create a new outfit — it is to show these SAME garments from the ${viewLabel} angle.
+        Every color, fabric texture, layering combination, and garment piece shown in the reference images below must be preserved EXACTLY.
+        Study each reference image carefully and reproduce the clothing with perfect fidelity — only the camera angle changes.`
+      });
+    }
+
+    // For crop shots (bust_top, bottom_focus), add a reminder about which garments to show
+    if (scene.shotType === 'bust_top') {
+      imageParts.push({
+        text: `CRITICAL: The reference images below show the EXACT garments for this bust-top close-up. Preserve all colors, fabric details, and layering from these reference images exactly. Only the framing changes (close crop from chest to head).`
+      });
+    }
+    if (scene.shotType === 'bottom_focus') {
+      imageParts.push({
+        text: `CRITICAL: The reference images below show the EXACT garments for this bottom-focus shot. Preserve all colors, fabric details, and pants/skirt styling from these reference images exactly. Only the framing changes (crop from waist to feet).`
+      });
+    }
+
     for (const [key, b64] of Object.entries(images)) {
       if (!b64) continue;
       const validRef = await ensureSupportedFormat(b64);
@@ -1445,6 +1746,14 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
           text: `STYLE_REFERENCE_IMAGE (VISUAL STYLE TARGET — NOT THE GARMENT):
           Emulate the mood, lighting direction, composition, color grading, and atmosphere of this image.
           Do NOT copy the clothing or model appearance from this image — only emulate its visual style.` });
+      } else if (key === 'anchor_model') {
+        // Front-shot anchor image — use as primary outfit + model identity reference
+        imageParts.push({
+          text: `ANCHOR_MODEL_REFERENCE (CRITICAL — PRIMARY OUTFIT SOURCE):
+          This image shows the COMPLETED front-view shot of the same outfit.
+          Use this as the DEFINITIVE reference for: garment colors, fabric appearance, layering order, styling, and model identity.
+          The new shot must show the EXACT same garments and person — only the camera angle/framing changes.`
+        });
       } else if (key.includes('_alt_')) {
         // Alt angle image — label with base item + angle context
         const baseKey = key.split('_alt_')[0];
@@ -1454,15 +1763,13 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
         imageParts.push({ text: `REFERENCE ${baseKey.toUpperCase()} — ${angleLabel} (use for back/side detail accuracy):` });
       } else {
         // Main front reference image
-        imageParts.push({ text: `REFERENCE ${key.toUpperCase()}:` });
+        imageParts.push({ text: `REFERENCE ${key.toUpperCase()} (source garment — copy colors and styling exactly):` });
       }
       imageParts.push({ inlineData: { mimeType, data } });
     }
     // モデル試行順（品質順）: アクセス可能なものを自動選択
     const MODELS_TO_TRY = [
-      "gemini-3-pro-image-preview",              // ★最高品質 4K (課金+ウェイトリスト)
-      "gemini-2.5-flash-image",                  // ★高品質・高速 (一般公開)
-      "gemini-2.0-flash-exp-image-generation",   // ★フォールバック (無料枠)
+      "gemini-3-pro-image-preview",  // 統一モデル
     ];
 
 
@@ -1813,9 +2120,7 @@ export const generateSnsStyleTransform = async (
     ];
 
     const MODELS_TO_TRY = [
-      "gemini-3-pro-image-preview",
-      "gemini-2.5-flash-image",
-      "gemini-2.0-flash-exp-image-generation",
+      "gemini-3-pro-image-preview",  // 統一モデル
     ];
 
     let lastError: unknown;
@@ -1992,9 +2297,7 @@ export const editImageWithInstruction = async (
   }
 
   const EDIT_MODELS = [
-    'gemini-3-pro-image-preview',
-    'gemini-2.5-flash-image',
-    'gemini-2.0-flash-exp-image-generation',
+    'gemini-3-pro-image-preview',  // 統一モデル
   ];
 
   const prompt = `You are a fashion photography expert. Edit the provided fashion image according to the following instruction, preserving the model's appearance, clothing details, and overall composition unless the instruction specifically asks to change them.
@@ -2039,3 +2342,298 @@ Requirements:
   throw lastError ?? new Error('全モデルで画像編集に失敗しました。');
 };
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Stage 1: CASTING — Generate Base Model
+// Creates a neutral-outfit model on white background for anchor_model use.
+// This is the foundation image that subsequent stages (fitting, shooting) build on.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const generateBaseModel = async (
+  apiKey: string,
+  mannequin: MannequinConfig,
+  bodySpec?: import('../types').ModelBodySpec,
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Build detailed body description
+  const genderDesc = mannequin.gender === 'female' ? 'female' : 'male';
+  const ethnicityMap: Record<string, string> = {
+    east_asian: 'East Asian',
+    southeast_asian: 'Southeast Asian',
+    south_asian: 'South Asian',
+    black_african: 'Black / African descent',
+    latina_hispanic: 'Latina / Hispanic',
+    middle_eastern: 'Middle Eastern',
+    white_caucasian: 'White / Caucasian',
+    mixed: 'Mixed ethnicity',
+    japanese: 'Japanese',
+    korean: 'Korean',
+    european: 'European',
+    african: 'African',
+    latin_american: 'Latin American',
+  };
+  const skinToneMap: Record<string, string> = {
+    fair: 'fair/pale skin tone',
+    light: 'light skin tone',
+    medium: 'medium/olive skin tone',
+    tan: 'tan/warm brown skin tone',
+    deep: 'deep/dark brown skin tone',
+  };
+  const hairColorMap: Record<string, string> = {
+    black: 'black hair',
+    dark_brown: 'dark brown hair',
+    brown: 'brown hair',
+    light_brown: 'light brown hair',
+    blonde: 'blonde hair',
+    platinum: 'platinum/ash blonde hair',
+    auburn: 'auburn hair',
+    red: 'red hair',
+  };
+  const hairLengthMap: Record<string, string> = {
+    short: 'short hair',
+    bob: 'bob-length hair',
+    medium: 'medium-length hair (shoulder)',
+    long: 'long hair (past shoulders)',
+    extra_long: 'very long hair (mid-back or longer)',
+  };
+
+  const bwhStr = bodySpec
+    ? [
+      bodySpec.bust ? `bust ${bodySpec.bust}cm` : null,
+      bodySpec.waist ? `waist ${bodySpec.waist}cm` : null,
+      bodySpec.hip ? `hip ${bodySpec.hip}cm` : null,
+    ].filter(Boolean).join(', ')
+    : '';
+
+  const prompt = `
+STAGE 1 — CASTING: Generate a professional fashion model for EC product photography.
+
+OBJECTIVE: Create a FULL-BODY model image that will serve as the BASE MODEL for subsequent garment fitting.
+This model will be dressed in product garments in the next stage — the purpose here is to establish the model's
+body, face, skin, and proportions FIRST.
+
+MODEL SPECIFICATION:
+- Gender: ${genderDesc}
+- Ethnicity: ${ethnicityMap[mannequin.ethnicity] ?? mannequin.ethnicity}
+- Skin tone: ${skinToneMap[mannequin.skinTone ?? 'fair'] ?? 'natural'}
+- Hair: ${hairColorMap[mannequin.hairColor ?? 'black'] ?? 'dark'}, ${hairLengthMap[mannequin.hairLength ?? 'medium'] ?? 'medium length'}
+- Age range: ${mannequin.ageGroup} (${mannequin.ageGroup === 'teen' ? '16-19' : mannequin.ageGroup === 'youthful' ? '20-28' : mannequin.ageGroup === 'prime' ? '29-38' : '39-50'})
+- Body type: ${mannequin.bodyType}
+${bodySpec?.height ? `- Height: ${bodySpec.height}cm (proportions should reflect this)` : ''}
+${bwhStr ? `- Body measurements: ${bwhStr}` : ''}
+${bodySpec?.weight ? `- Build: ${bodySpec.weight}` : ''}
+
+CLOTHING (CRITICAL — NEUTRAL BASE ONLY):
+The model must wear MINIMAL, NEUTRAL clothing that allows easy garment fitting in the next stage:
+- A simple, fitted, plain TANK TOP or CAMISOLE in light grey or beige
+- Simple, fitted SHORTS or BIKE SHORTS in light grey or beige
+- NO shoes (bare feet are acceptable at this stage — shoes are added with the garment)
+- NO accessories, jewelry, or watches
+- Clothing must be tight-fitting to clearly show the body's silhouette and proportions
+
+POSE:
+- Direct frontal standing pose, arms slightly away from body (5-10 degrees)
+- Weight evenly distributed on both feet
+- Face looking straight at camera with neutral, natural expression
+- NOT smiling, NOT frowning — professional model composure
+- Both hands visible, fingers naturally relaxed
+
+TECHNICAL:
+- Pure white seamless studio background (RGB 255,255,255)
+- Flat, even studio lighting — zero shadows on background
+- Full body from top of head to feet, centered in frame
+- 3:4 aspect ratio
+- Hyperrealistic photography, NOT illustration or CGI
+- Shot on professional camera, 50mm lens equivalent
+- The result must look like an actual person photographed in a studio`;
+
+  // Use Gemini's native image generation
+  const models = ['gemini-3-pro-image-preview'];
+
+  let lastError: unknown;
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          responseModalities: ['IMAGE', 'TEXT'],
+          temperature: 0.8,
+        },
+      });
+
+      if (response.candidates?.[0]?.content) {
+        for (const part of response.candidates[0].content.parts || []) {
+          if (part.inlineData) {
+            console.log(`[Lumina Stage1 CASTING] Base model generated with ${model}`);
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
+      }
+      console.warn(`[Lumina Stage1] Model ${model} returned no image`);
+    } catch (e) {
+      console.warn(`[Lumina Stage1] Model ${model} failed:`, e);
+      lastError = e;
+    }
+  }
+  throw lastError ?? new Error('Stage 1 CASTING: ベースモデル生成に失敗しました。');
+};
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Stage 2: FITTING — Dress the base model with product garments
+// Takes the Stage 1 base model + garment images + analysis → dressed model
+// This result serves as ec_front AND anchor_model for all subsequent shots.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const generateFittedModel = async (
+  apiKey: string,
+  baseModelImage: string,
+  analysis: VisionAnalysis,
+  garmentImages: Record<string, string>,
+  _mannequin: MannequinConfig,
+  garmentContext?: import('../types').GarmentContext,
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Build outfit description from analysis
+  const outfitParts: string[] = [];
+  if (analysis.tops) {
+    outfitParts.push(`TOP: ${analysis.tops.description}. Fabric: ${analysis.tops.fabric}. Color: ${analysis.tops.colorHex}. Fit: ${analysis.tops.fit}.`);
+  }
+  if (analysis.pants) {
+    outfitParts.push(`PANTS/BOTTOM: ${analysis.pants.description}. Fabric: ${analysis.pants.fabric}. Color: ${analysis.pants.colorHex}. Fit: ${analysis.pants.fit}.`);
+  }
+  if (analysis.outer) {
+    outfitParts.push(`OUTER: ${analysis.outer.description}. Fabric: ${analysis.outer.fabric}. Color: ${analysis.outer.colorHex}. Fit: ${analysis.outer.fit}.`);
+  }
+  if (analysis.inner) {
+    outfitParts.push(`INNER: ${analysis.inner.description}. Fabric: ${analysis.inner.fabric}. Color: ${analysis.inner.colorHex}. Fit: ${analysis.inner.fit}.`);
+  }
+  if (analysis.shoes) {
+    outfitParts.push(`SHOES: ${analysis.shoes.description}. Color: ${analysis.shoes.colorHex}.`);
+  }
+
+  // Hero product emphasis
+  const heroLabel: Record<string, string> = {
+    tops: 'TOP', pants: 'PANTS/BOTTOM', outer: 'OUTERWEAR',
+    inner: 'INNER LAYER', shoes: 'SHOES',
+  };
+  const hero = garmentContext?.heroProduct;
+  const heroSpec = hero ? garmentContext?.specs?.[hero] : null;
+
+  // Layering state
+  const layeringBlock = analysis.layeringState ? `
+STYLING STATE (reproduce EXACTLY):
+${analysis.layeringState.outerOpenState ? `- Outer: ${analysis.layeringState.outerOpenState.replace(/_/g, ' ')}` : ''}
+${analysis.layeringState.topTuckState ? `- Tuck: ${analysis.layeringState.topTuckState.replace(/_/g, ' ')}` : ''}
+${analysis.layeringState.innerVisibility ? `- Inner visibility: ${analysis.layeringState.innerVisibility.replace(/_/g, ' ')}` : ''}
+${analysis.layeringState.sleeveCuffState ? `- Sleeves: ${analysis.layeringState.sleeveCuffState.replace(/_/g, ' ')}` : ''}
+${analysis.layeringState.beltState ? `- Belt: ${analysis.layeringState.beltState.replace(/_/g, ' ')}` : ''}
+${analysis.layeringState.stylingDescription ? `Full description: "${analysis.layeringState.stylingDescription}"` : ''}
+` : '';
+
+  const prompt = `
+STAGE 2 — FITTING: Dress the base model with product garments.
+
+OBJECTIVE: Take the BASE MODEL (the person in the reference image wearing neutral clothing)
+and dress them in the EXACT product garments shown in the reference garment images.
+This is a GARMENT FITTING step — focus entirely on accurate clothing placement, fit, and styling.
+
+IDENTITY LOCK (ABSOLUTE — DO NOT CHANGE THE PERSON):
+- The person's FACE must be 100% identical to the base model reference
+- Same bone structure, jawline, nose, eyes, eyebrows, lips
+- Same skin tone, complexion, hair color, hair length, hair style
+- Same body proportions and build
+- ONLY the clothing changes — everything about the person stays EXACTLY the same
+
+GARMENT PLACEMENT (PRIMARY FOCUS OF THIS STAGE):
+${outfitParts.join('\n')}
+${layeringBlock}
+
+${hero ? `
+HERO PRODUCT PRIORITY: [${heroLabel[hero] ?? hero}]
+This garment is the MAIN PRODUCT — it must be rendered with maximum accuracy:
+${heroSpec?.length ? `- Length: ${heroSpec.length}cm` : ''}
+${heroSpec?.rise ? `- Rise: ${heroSpec.rise}cm (${heroSpec.rise >= 28 ? 'high-rise' : heroSpec.rise >= 24 ? 'mid-rise' : 'low-rise'})` : ''}
+${heroSpec?.thighWidth ? `- Thigh width: ${heroSpec.thighWidth}cm (${heroSpec.thighWidth >= 38 ? 'wide-leg' : heroSpec.thighWidth >= 30 ? 'straight' : 'slim'})` : ''}
+${heroSpec?.material ? `- Material: ${heroSpec.material}` : ''}
+${heroSpec?.waistStyle ? `- Waist style: ${heroSpec.waistStyle}` : ''}
+${heroSpec?.shoulderWidth ? `- Shoulder width: ${heroSpec.shoulderWidth}cm` : ''}
+` : ''}
+
+FITTING ACCURACY REQUIREMENTS:
+- Every garment must match the EXACT color, pattern, texture from the reference images
+- Fabric drape, weight, and construction must be accurate to the material
+- Hem positions, sleeve lengths, and overall proportions must match references
+- Logos, prints, and decorative elements must be preserved exactly
+- Garment layering order must be correct (inner → top → outer)
+
+POSE:
+- Direct frontal standing, arms slightly away from body (5-10°)
+- Weight even on both feet, feet parallel shoulder-width apart
+- Natural relaxed hands at sides
+- Face looking straight at camera, neutral expression
+
+TECHNICAL:
+- Pure white seamless background
+- Professional EC flat lighting — even, no harsh shadows
+- 3:4 portrait aspect ratio
+- Full body from head to feet, centered
+- Hyperrealistic photography quality`;
+
+  // Build image parts: base_model + all garment images
+  const imageParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+
+  // Base model
+  const baseModelParsed = parseBase64(baseModelImage);
+  imageParts.push({ inlineData: { mimeType: baseModelParsed.mimeType, data: baseModelParsed.data } });
+
+  // Garment reference images (exclude base_model and anchor_model from garment list)
+  const excludeKeys = new Set(['base_model', 'anchor_model', 'model', 'campaign_style_ref']);
+  for (const [key, img] of Object.entries(garmentImages)) {
+    if (excludeKeys.has(key) || !img) continue;
+    const parsed = parseBase64(img);
+    imageParts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
+  }
+
+  const models = ['gemini-3-pro-image-preview'];
+  let lastError: unknown;
+
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: `[BASE_MODEL — this is the person to dress. Keep their identity LOCKED.]` },
+            imageParts[0],  // base model image
+            { text: `[GARMENT REFERENCE IMAGES — dress the base model in these exact garments:]` },
+            ...imageParts.slice(1),  // garment images
+            { text: prompt },
+          ],
+        }],
+        config: {
+          responseModalities: ['IMAGE', 'TEXT'],
+          temperature: 0.6,  // Lower temp for more accurate fitting
+        },
+      });
+
+      if (response.candidates?.[0]?.content) {
+        for (const part of response.candidates[0].content.parts || []) {
+          if (part.inlineData) {
+            console.log(`[Lumina Stage2 FITTING] Fitted model generated with ${model}`);
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
+      }
+      console.warn(`[Lumina Stage2] Model ${model} returned no image`);
+    } catch (e) {
+      console.warn(`[Lumina Stage2] Model ${model} failed:`, e);
+      lastError = e;
+    }
+  }
+  throw lastError ?? new Error('Stage 2 FITTING: 着用合成に失敗しました。');
+};
