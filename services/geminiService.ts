@@ -1166,10 +1166,41 @@ export const generateFashionShot = async (
       ` : ''}
       ${images.model ? "CRITICAL: The subject MUST be the person shown in the REFERENCE MODEL image. Preserve their facial features, body type, and hair style exactly." : ""}
       A realistic ${mannequin.ageGroup} ${mannequin.ethnicity} ${mannequin.gender} model, ${mannequin.bodyType} build.
-      SKIN TONE: ${(mannequin as any).skinTone ?? 'fair'} — render skin texture, undertone, and luminosity consistent with this tone description.
-      HAIR: ${(mannequin as any).hairColor ?? 'black'} hair, ${(mannequin as any).hairLength ?? 'medium'} length. Hair must be styled to match these descriptors exactly.
+      SKIN TONE: ${(() => {
+        const skinToneDescriptions: Record<string, string> = {
+          fair: 'fair skin — porcelain-white, cool or neutral undertone, visible delicate veins',
+          light: 'light skin — slightly warm ivory tone, natural glow, light beige complexion',
+          medium: 'medium skin — warm olive or tan complexion, golden-brown undertone',
+          tan: 'tan skin — sun-kissed bronze tone, warm brown undertone',
+          deep: 'deep skin — rich dark brown, deep ebony complexion with warm undertone',
+        };
+        return skinToneDescriptions[(mannequin as any).skinTone] ?? ((mannequin as any).skinTone ?? 'fair skin');
+      })()} — render skin texture with accurate undertone and luminosity.
+      HAIR COLOR AND LENGTH: ${(() => {
+        const hairColorDescriptions: Record<string, string> = {
+          black: 'jet black hair',
+          dark_brown: 'dark brown hair (deep chocolate, near-black)',
+          brown: 'medium brown hair (warm chestnut brown)',
+          light_brown: 'light brown hair (warm caramel-honey tone)',
+          blonde: 'blonde hair (golden yellow)',
+          platinum: 'platinum blonde hair (very pale, almost white)',
+          auburn: 'auburn hair (reddish-brown)',
+          red: 'vivid red hair',
+        };
+        const hairLengthDescriptions: Record<string, string> = {
+          short: 'short (above ears)',
+          bob: 'bob cut (jaw length)',
+          medium: 'medium length (shoulder length)',
+          long: 'long (below shoulders)',
+          extra_long: 'extra-long (mid-back or longer)',
+        };
+        const colorDesc = hairColorDescriptions[(mannequin as any).hairColor] ?? `${(mannequin as any).hairColor ?? 'black'} hair`;
+        const lengthDesc = hairLengthDescriptions[(mannequin as any).hairLength] ?? ((mannequin as any).hairLength ?? 'medium length');
+        return `${colorDesc}, ${lengthDesc}`;
+      })()} — CRITICAL: hair color and length MUST match these specifications exactly.
       ${mannequin.height ? `Height: ${mannequin.height}cm.` : ''} ${mannequin.weight ? `Body Size/Weight: ${mannequin.weight}.` : ''}
       Pose: ${posePrompts[mannequin.pose] ?? posePrompts['ec_neutral']}.
+
 
       PRECISION FIT & SIZING (CRITICAL):
       ${garmentMeasurements ? `

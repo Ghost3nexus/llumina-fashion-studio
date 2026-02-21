@@ -263,6 +263,7 @@ const NewGenerationPage: React.FC = () => {
     }, [
         canGenerate,
         uploadedImages,
+        altImages,
         studioPreset,
         focalLength,
         gender,
@@ -270,7 +271,12 @@ const NewGenerationPage: React.FC = () => {
         bodyType,
         vibe,
         pose,
+        ethnicity,
+        skinTone,
+        hairColor,
+        hairLength,
         selectedPurposes,
+        ecViews,
     ]);
 
     const handleSaveApiKey = useCallback(() => {
