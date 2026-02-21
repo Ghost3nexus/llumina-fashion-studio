@@ -8,6 +8,7 @@ interface GenerationCanvasProps {
     onDownload: (result: PreviewResult) => void;
     onRegenerate: () => void;
     onEdit: (resultId: string, instruction: string) => void;
+    onSnsTransform?: (result: PreviewResult) => void;
     editingId?: string | null; // which card is being AI-edited right now
 }
 
@@ -18,6 +19,7 @@ export const GenerationCanvas: React.FC<GenerationCanvasProps> = ({
     onDownload,
     onRegenerate,
     onEdit,
+    onSnsTransform,
     editingId,
 }) => {
     // Per-card instruction input state
@@ -192,13 +194,23 @@ export const GenerationCanvas: React.FC<GenerationCanvasProps> = ({
                                         onClick={() => setOpenEditId(isEditOpen ? null : result.id)}
                                         disabled={isBeingEdited}
                                         className={`py-2 px-3 rounded-lg font-bold text-[9px] uppercase tracking-wider transition-colors disabled:opacity-40 ${isEditOpen
-                                                ? 'bg-violet-600 text-white'
-                                                : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
+                                            ? 'bg-violet-600 text-white'
+                                            : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
                                             }`}
                                         title="テキスト指示で AI 編集"
                                     >
                                         Edit
                                     </button>
+                                    {onSnsTransform && (
+                                        <button
+                                            onClick={() => onSnsTransform(result)}
+                                            disabled={isBeingEdited}
+                                            className="py-2 px-3 bg-gradient-to-r from-pink-600/80 to-violet-600/80 text-white rounded-lg font-bold text-[9px] uppercase tracking-wider hover:from-pink-500 hover:to-violet-500 disabled:opacity-40 transition-all"
+                                            title="SNS用スタイル変換"
+                                        >
+                                            📱 SNS
+                                        </button>
+                                    )}
                                     <button
                                         onClick={onRegenerate}
                                         disabled={isBeingEdited}

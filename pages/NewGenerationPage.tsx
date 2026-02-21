@@ -9,7 +9,8 @@ import {
     PreviewResult,
     BrandProfile,
 } from '../services/luminaApi';
-import { analyzeClothingItems, generateFashionShot, editImageWithInstruction } from '../services/geminiService';
+import { analyzeClothingItems, generateFashionShot, editImageWithInstruction, generateSnsStyleTransform, SnsStyleKey } from '../services/geminiService';
+import { SnsStyleModal } from '../components/new/SnsStyleModal';
 import {
     buildLightingConfig,
     buildSceneConfig,
@@ -64,6 +65,10 @@ const NewGenerationPage: React.FC = () => {
 
     // Edit state
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // SNS style transform modal state
+    const [snsTarget, setSnsTarget] = useState<{ id: string; imageUrl: string; label: string } | null>(null);
+    const [snsGenerating, setSnsGenerating] = useState(false);
 
     // EC multi-view state (default: front + back)
     const [ecViews, setEcViews] = useState<Set<string>>(new Set(['ec_front', 'ec_back']));
@@ -349,6 +354,44 @@ const NewGenerationPage: React.FC = () => {
         }
     }, [genResults]);
 
+    // ── SNS STYLE TRANSFORM handler ──────────────────────────────────────────
+    const handleSnsGenerate = useCallback(async (styleKey: SnsStyleKey) => {
+        if (!snsTarget) return;
+        setSnsGenerating(true);
+        try {
+            const apiKey = await resolveApiKey();
+            const snsImageUrl = await generateSnsStyleTransform(
+                apiKey,
+                snsTarget.imageUrl,
+                styleKey,
+            );
+            // Add the SNS result to genResults
+            const styleDef = (await import('../services/geminiService')).SNS_STYLES.find(s => s.key === styleKey);
+            const snsResult: PreviewResult = {
+                id: `sns-${styleKey}-${Date.now()}`,
+                imageUrl: snsImageUrl,
+                label: `${styleDef?.icon ?? '📱'} ${styleDef?.label ?? styleKey}`,
+                purpose: 'SNS',
+                aspectRatio: '1:1',
+                status: 'complete' as const,
+            };
+            setGenResults(prev => [...prev, snsResult]);
+            setSnsTarget(null);
+        } catch (err) {
+            console.error('[SNS Transform] Failed:', err);
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
+                localStorage.removeItem(API_KEY_STORAGE);
+                setApiKeyError('キーが無効でした。正しいキーを入力してください。');
+                setShowApiKeyPrompt(true);
+            } else {
+                alert(`SNS変換失敗: ${msg}`);
+            }
+        } finally {
+            setSnsGenerating(false);
+        }
+    }, [snsTarget]);
+
     // ── CONFIRM IN HD: re-generate all at MAX quality then download ──────────
     const handleConfirmHD = useCallback(async () => {
         if (genResults.length === 0) return;
@@ -536,6 +579,7 @@ const NewGenerationPage: React.FC = () => {
                         onDownload={handleDownload}
                         onRegenerate={handleGeneratePreview}
                         onEdit={handleEditApply}
+                        onSnsTransform={(result) => setSnsTarget({ id: result.id, imageUrl: result.imageUrl, label: result.label })}
                         editingId={editingId}
                     />
                 }
@@ -558,6 +602,17 @@ const NewGenerationPage: React.FC = () => {
                     />
                 }
             />
+
+            {/* SNS Style Transform Modal */}
+            {snsTarget && (
+                <SnsStyleModal
+                    baseImageUrl={snsTarget.imageUrl}
+                    baseLabel={snsTarget.label}
+                    isGenerating={snsGenerating}
+                    onGenerate={handleSnsGenerate}
+                    onClose={() => !snsGenerating && setSnsTarget(null)}
+                />
+            )}
         </>
     );
 };

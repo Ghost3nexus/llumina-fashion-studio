@@ -1458,8 +1458,6 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
       }
       imageParts.push({ inlineData: { mimeType, data } });
     }
-
-
     // モデル試行順（品質順）: アクセス可能なものを自動選択
     const MODELS_TO_TRY = [
       "gemini-3-pro-image-preview",              // ★最高品質 4K (課金+ウェイトリスト)
@@ -1527,6 +1525,270 @@ ACCESSORY REQUIREMENT: The model MUST wear/hold ALL specified accessories exactl
     throw lastError ?? new Error("全モデルで画像生成に失敗しました。APIキーとモデルのアクセス権を確認してください。");
   } catch (error) {
     console.error("Image Generation Failed:", error);
+    throw error;
+  }
+};
+
+
+// ========================================
+// SNS STYLE TRANSFORM — Generate from Base Image
+// ========================================
+
+export type SnsStyleKey =
+  | 'leica_film'
+  | 'mirror_selfie'
+  | 'ai_surreal'
+  | 'pixel_8bit'
+  | 'y2k_vaporwave'
+  | 'street_snap'
+  | 'editorial_mood'
+  | 'cinematic';
+
+export interface SnsStyleDef {
+  key: SnsStyleKey;
+  label: string;
+  labelJa: string;
+  icon: string;
+  prompt: string;
+}
+
+export const SNS_STYLES: SnsStyleDef[] = [
+  {
+    key: 'leica_film',
+    label: 'Leica Film',
+    labelJa: 'ライカ フィルム',
+    icon: '📷',
+    prompt: `STYLE TRANSFORM: Leica Film Analog Photography.
+      Re-create the scene as if shot on a Leica M11 Monochrom with 35mm Summilux f/1.4 lens.
+      GRAIN: Heavy natural film grain — Kodak Tri-X 400 or Ilford HP5 equivalent. Organic, not digital noise.
+      COLOR: Warm analog tone. Slightly faded blacks (not pure black). Gentle warm color bleed at highlights.
+      DEPTH: Signature Leica shallow DOF with creamy, swirling bokeh on background.
+      CONTRAST: Strong micro-contrast that makes textures pop — fabric weave, skin pores, hair strands.
+      SHARPNESS: Razor-sharp focus plane with smooth falloff. NOT digital over-sharpened.
+      FEEL: Nostalgic, intimate, timeless. As if developed in a darkroom yesterday.
+      REFERENCE: Peter Lindbergh, Juergen Teller, Terry Richardson natural light Leica work.`,
+  },
+  {
+    key: 'mirror_selfie',
+    label: 'Mirror Selfie',
+    labelJa: 'ミラーセルフィー',
+    icon: '🪞',
+    prompt: `STYLE TRANSFORM: Mirror Selfie / OOTD Format.
+      Re-create as a mirror selfie — the model is seen THROUGH A MIRROR reflection.
+      CAMERA: A smartphone (iPhone) or digital camera is VISIBLE in the model's hands, reflected in the mirror.
+      ANGLE: Slightly off-center composition. NOT perfectly centered — authentic, casual framing.
+      ENVIRONMENT: Stylish interior — clean bedroom, fitting room, elevator mirror, or aesthetic bathroom.
+      LIGHTING: Natural indoor light from window, or soft overhead. Phone flash reflection may be subtly visible on mirror surface.
+      BODY LANGUAGE: Relaxed, confident. One hand holding phone/camera, other hand natural (on hip, touching hair, or holding bag).
+      MIRROR: Clean full-length mirror. Subtle reflection quality — not perfectly sharp, slight mirror surface texture.
+      CROP: Full body visible in mirror, some room edge visible for context. 1:1 square crop.
+      FEEL: Authentic OOTD (Outfit Of The Day). Instagram casual — Not overly produced.
+      REFERENCE: Fashion influencer mirror selfie culture, Kim Kardashian gym mirror selfie aesthetic.`,
+  },
+  {
+    key: 'ai_surreal',
+    label: 'AI Surreal',
+    labelJa: 'AI 超現実',
+    icon: '🌀',
+    prompt: `STYLE TRANSFORM: AI Surreal — Impossible Reality Only AI Can Create.
+      Re-create the model and outfit in a HYPER-SURREAL environment that defies physics.
+      ENVIRONMENT: Choose one — floating geometric platforms in endless sky, liquid chrome ocean,
+        infinite mirror labyrinth, bioluminescent crystal cave, anti-gravity room with floating furniture,
+        or holographic data stream cascade.
+      PHYSICS: Objects float, gravity is optional. Fabric may defy gravity — flowing upward or suspended.
+      LIGHTING: Otherworldly — bioluminescent glow, holographic prismatic light, or impossible dual-sun.
+      COLOR: Saturated, dreamlike palette. Deep purples, electric cyans, molten golds, plasma pinks.
+      ATMOSPHERE: Visible particles — floating dust motes, light prisms, digital artifacts, energy fields.
+      MODEL: Same person, same outfit, but they exist naturally in this impossible space.
+      QUALITY: Hyper-detailed, 8K rendering, photorealistic model in surreal environment.
+      FEEL: Fashion editorial meets Beeple / Refik Anadol digital art.
+      This image should be IMPOSSIBLE in real life — that's the point.`,
+  },
+  {
+    key: 'pixel_8bit',
+    label: '8bit / Pixel',
+    labelJa: '8bit ドット絵',
+    icon: '👾',
+    prompt: `STYLE TRANSFORM: 8-bit Pixel Art / Retro Game Aesthetic.
+      Convert the fashion image into pixel art style.
+      PIXELS: Visible pixel grid. 64x64 to 128x128 effective pixel resolution, upscaled to output size.
+      COLOR PALETTE: Limited to maximum 32 colors. Bold, flat colors — no gradients.
+      STYLE: NES/SNES/Game Boy Advance era sprite art quality.
+      GARMENT RENDERING: Fashion items rendered as pixel art — silhouette and key details preserved.
+        Color blocks represent fabric panels. Plaid/stripes simplified to pixel patterns.
+      MODEL: Pixel art character standing sprite. Face simplified to pixel features but recognizable.
+      BACKGROUND: Simple pixel art environment — solid color or basic tiled pattern.
+      UI OVERLAY: Optional retro game UI elements — thin border frame, pixel font label showing outfit name,
+        small pixel heart or star icons for style rating.
+      FEEL: Nostalgic, playful, Gen Z Kidcore appeal. Shareable and unique.
+      REFERENCE: Fashion game sprites, Stardew Valley character art quality level.`,
+  },
+  {
+    key: 'y2k_vaporwave',
+    label: 'Y2K / Vapor',
+    labelJa: 'Y2K / ヴェイパー',
+    icon: '💿',
+    prompt: `STYLE TRANSFORM: Y2K Aesthetic + Vaporwave Visual Culture.
+      Re-create with full Y2K / Vaporwave digital nostalgia treatment.
+      COLOR: Hot pink (#FF69B4), cyan (#00FFFF), purple (#9B59B6) as dominant tones.
+        Holographic / iridescent reflections on surfaces and fabric.
+      ENVIRONMENT: Choose one — Windows XP desktop wallpaper (Bliss hill), CRT TV monitor frame,
+        early 2000s web browser window (Internet Explorer), or vaporwave sunset grid floor.
+      EFFECTS: CRT scanlines overlay (subtle). RGB chromatic aberration / color shift at edges.
+        Subtle glitch distortion bands. Low-poly 3D shapes floating (torus, sphere, pyramid).
+      TEXT OVERLAY: Optional Japanese katakana text fragments (aesthetics — アエステティック, fashion — ファッション).
+        Retro digital clock or date stamp (format: 2000.01.01).
+      TEXTURE: Metallic / chrome surfaces reflect the model. Liquid metal or mercury pool.
+      FASHION: Garments rendered with metallic/holographic sheen overlay, maintaining original design.
+      FEEL: Nostalgic futurism, early internet culture, TikTok Y2K revival.
+      REFERENCE: Vaporwave album covers, early 2000s web design, Charli XCX "Brat" era Y2K aesthetic.`,
+  },
+  {
+    key: 'street_snap',
+    label: 'Street Snap',
+    labelJa: 'ストリートスナップ',
+    icon: '📸',
+    prompt: `STYLE TRANSFORM: Street Style / Fashion Week Snap Photography.
+      Re-create as a candid street style photograph.
+      LIGHTING: Direct camera flash — slightly harsh, creates hard shadows behind model.
+        High contrast. Flash illuminates model, background falls darker.
+      ENVIRONMENT: Urban night or evening — wet asphalt reflections, neon shop signs,
+        crosswalk stripes, concrete building facades, or fashion week venue entrance.
+      CAMERA: Compact digital or DSLR on-camera flash look. ISO pushed higher — visible but stylish noise.
+      COMPOSITION: Slightly tilted or urgently framed. Model caught mid-stride or posing with attitude.
+      BODY LANGUAGE: Confident, intentional but not stiff. Walking toward camera, or leaning against wall.
+        Sunglasses optional, coffee cup or phone in hand for authenticity.
+      COLOR: Slightly desaturated with flash-bleached skin tones. Night tones — blues, oranges, warm whites.
+      CROP: Tight 1:1 from waist up, or full body with compressed urban background.
+      FEEL: Raw, energetic, fashion week paparazzi capture quality.
+      REFERENCE: Tommy Ton, Scott Schuman (The Sartorialist), Vogue Runway street style galleries.`,
+  },
+  {
+    key: 'editorial_mood',
+    label: 'Editorial Mood',
+    labelJa: 'エディトリアル',
+    icon: '🖤',
+    prompt: `STYLE TRANSFORM: Dark Editorial / Art Fashion Photography.
+      Re-create as a high-fashion magazine editorial spread image.
+      LIGHTING: One strong directional key light creating dramatic chiaroscuro.
+        Deep, intentional shadows covering 40-60% of the image. Light sculpts the body.
+      COLOR: Near-monochrome or heavily desaturated. Selective color allowed — one accent tone maximum.
+        Alternative: full black and white with rich tonal range.
+      COMPOSITION: Extreme or unconventional framing — severe crop (cut off top of head, or only torso),
+        Dutch angle (10-20 degree tilt), or extremely high/low camera angle.
+      EXPRESSION: Fierce, confrontational, or deeply introspective. Direct eye contact or dramatically averted gaze.
+      BACKGROUND: Minimal — solid black, textured dark wall, or completely blown-out white.
+      TEXTURE: Heavy grain. Visible film-like texture throughout. Anti-polished deliberately.
+      FEEL: Anti-commercial, art-first. This is ART, not advertising.
+      REFERENCE: Nick Knight, Solve Sundsbo, Paolo Roversi. Magazines: i-D, Dazed, Another, Purple.`,
+  },
+  {
+    key: 'cinematic',
+    label: 'Cinematic',
+    labelJa: 'シネマティック',
+    icon: '🎬',
+    prompt: `STYLE TRANSFORM: Cinematic Movie Still.
+      Re-create as a film still paused mid-scene from a fashion-centric movie.
+      LENS: Anamorphic lens characteristics — horizontal lens flare, oval bokeh, slight edge distortion.
+      COLOR GRADING: Teal and orange complementary palette (blockbuster grading).
+        Alternative: Wong Kar-wai saturated neon reds and greens, or Wes Anderson pastel symmetry.
+      DEPTH: Extremely shallow DOF (T1.3 equivalent). Only the model is in focus.
+        Background is a creamy wash of colored bokeh lights.
+      ATMOSPHERE: Visible atmospheric haze, fog, or cigarette smoke. Volumetric light rays.
+        Rain drops on glass or wet surfaces for texture. Dramatic backlight creating rim halo.
+      COMPOSITION: Center-framed but with cinematic negative space above (headroom).
+        Letterbox black bars on top and bottom (thin, for cinematic feel even in 1:1).
+      EXPRESSION: Contemplative, mid-conversation, or gazing out of frame at something unseen.
+      FEEL: A pivotal quiet moment in a beautiful film. Emotional weight. Narrative tension.
+      REFERENCE: Wong Kar-wai "In the Mood for Love", Sofia Coppola "Lost in Translation",
+        Nicolas Winding Refn "Drive", Barry Jenkins "Moonlight".`,
+  },
+];
+
+/**
+ * Generate an SNS-styled image by transforming a base image from the GENERATION QUEUE.
+ * The base image provides the garment/model anchor; the style prompt transforms the visual aesthetic.
+ */
+export const generateSnsStyleTransform = async (
+  apiKey: string,
+  baseImageB64: string,
+  styleKey: SnsStyleKey,
+  garmentKeywords: string[] = [],
+): Promise<string> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const styleDef = SNS_STYLES.find(s => s.key === styleKey);
+    if (!styleDef) throw new Error(`Unknown SNS style: ${styleKey}`);
+
+    const validRef = await ensureSupportedFormat(baseImageB64);
+    const { mimeType, data } = parseBase64(validRef);
+
+    const prompt = `
+      SNS STYLE TRANSFORM — Generate a 1:1 square Instagram-ready image.
+
+      ANCHOR IMAGE RULES (CRITICAL):
+      The attached ANCHOR_IMAGE contains the model and outfit that MUST be preserved.
+      - SAME person: identical face, body type, hair
+      - SAME outfit: identical garments, colors, fit, accessories
+      - ONLY the visual STYLE, ENVIRONMENT, LIGHTING, and POST-PROCESSING change.
+      - Do NOT alter the clothing design, color, or fit in any way.
+
+      ${styleDef.prompt}
+
+      CANVAS: 1:1 square format. Instagram-optimized composition.
+      QUALITY: Photorealistic rendering (unless pixel_8bit style which is intentionally pixelated).
+      ${garmentKeywords.length > 0 ? `GARMENT KEYWORDS: ${garmentKeywords.join(', ')}` : ''}
+
+      OUTPUT: A single, stunning, shareable Instagram image that would go viral in fashion communities.
+    `;
+
+    const imageParts = [
+      { text: 'ANCHOR_IMAGE (preserve this model and outfit exactly):' },
+      { inlineData: { mimeType, data } },
+    ];
+
+    const MODELS_TO_TRY = [
+      "gemini-3-pro-image-preview",
+      "gemini-2.5-flash-image",
+      "gemini-2.0-flash-exp-image-generation",
+    ];
+
+    let lastError: unknown;
+    for (const modelName of MODELS_TO_TRY) {
+      try {
+        console.log(`[Lumina SNS] Trying model: ${modelName} for style: ${styleKey}`);
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              { text: prompt },
+              ...imageParts
+            ]
+          },
+          config: {
+            responseModalities: ["TEXT", "IMAGE"],
+            aspectRatio: '1:1',
+          } as any,
+        });
+
+        if (response.candidates?.[0]?.content) {
+          for (const part of (response.candidates?.[0]?.content?.parts || [])) {
+            if (part.inlineData) {
+              console.log(`[Lumina SNS] Style transform success with model: ${modelName}`);
+              return `data:image/png;base64,${part.inlineData.data}`;
+            }
+          }
+        }
+        console.warn(`[Lumina SNS] Model ${modelName} returned no image, trying next...`);
+      } catch (modelErr) {
+        console.warn(`[Lumina SNS] Model ${modelName} failed:`, modelErr);
+        lastError = modelErr;
+      }
+    }
+
+    throw lastError ?? new Error("SNS style transform failed on all models.");
+  } catch (error) {
+    console.error("[Lumina SNS] Style transform failed:", error);
     throw error;
   }
 };
