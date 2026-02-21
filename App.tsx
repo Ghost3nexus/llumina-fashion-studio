@@ -643,22 +643,26 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* New 3-column studio — default */}
           <Route
             path="/"
-            element={
-              <ProtectedRoute>
-                <MainApp />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/app/new"
             element={
               <ProtectedRoute>
                 <NewGenerationPage />
               </ProtectedRoute>
             }
           />
+          {/* Legacy slide-based UI */}
+          <Route
+            path="/legacy"
+            element={
+              <ProtectedRoute>
+                <MainApp />
+              </ProtectedRoute>
+            }
+          />
+          {/* Old /app/new alias → redirect to / */}
+          <Route path="/app/new" element={<Navigate to="/" replace />} />
           {/* Catch all redirect */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
